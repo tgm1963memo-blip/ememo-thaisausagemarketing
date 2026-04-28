@@ -24,7 +24,7 @@ export default function Login() {
 
   return (
     <div style={styles.container}>
-      {/* แถบสีด้านบนสุด */}
+      {/* แถบสีเยอรมันตกแต่งด้านบน */}
       <div style={styles.topBar}>
         <div style={{...styles.barSeg, background: '#FF0000'}}></div>
         <div style={{...styles.barSeg, background: '#000000'}}></div>
@@ -32,11 +32,12 @@ export default function Login() {
       </div>
       
       <div style={styles.card}>
-        {/* แสดงโลโก้ TGM */}
+        {/* โลโก้ TGM จาก folder public */}
         <img 
-          src="/path/to/logo_tgm.png"  // ** กรุณาแก้ Path ให้ถูกต้อง **
+          src="/TGM-01-scaled.jpg" 
           alt="TGM Logo" 
           style={styles.logo} 
+          onError={(e) => { e.target.style.display = 'none'; }}
         />
         
         <h2 style={styles.title}>E-Memo Login</h2>
@@ -46,7 +47,7 @@ export default function Login() {
           <input
             style={styles.input}
             type="email"
-            placeholder="your.email@thaisauces.co.th"
+            placeholder="example@thaisauces.co.th"
             onChange={(e) => setEmail(e.target.value)}
           />
         </div>
@@ -62,7 +63,7 @@ export default function Login() {
         </div>
 
         <button style={styles.button} onClick={handleLogin} disabled={loading}>
-          {loading ? "กำลังตรวจสอบ..." : "เข้าสู่ระบบ"}
+          {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
         </button>
         
         <div style={styles.footerText}>
@@ -80,91 +81,37 @@ const styles = {
     flexDirection: "column",
     justifyContent: "center",
     alignItems: "center",
-    background: "#000000", // พื้นหลังดำตามโลโก้
+    background: "#000",
     fontFamily: "'Noto Sans Thai', sans-serif",
     position: 'relative'
   },
-  topBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: '100%',
-    height: '8px',
-    display: 'flex',
-  },
-  barSeg: {
-    flex: 1,
-  },
+  topBar: { position: 'absolute', top: 0, left: 0, width: '100%', height: '6px', display: 'flex' },
+  barSeg: { flex: 1 },
   card: {
     background: "#fff",
     padding: "40px 30px",
     borderRadius: "16px",
-    width: "360px",
-    boxShadow: "0 15px 35px rgba(212, 175, 55, 0.15)", // Shadow สีทองจางๆ
+    width: "350px",
+    boxShadow: "0 10px 40px rgba(212, 175, 55, 0.2)",
     display: "flex",
     flexDirection: "column",
-    gap: "20px",
-    border: "1px solid #eee"
+    gap: "18px"
   },
-  logo: {
-    width: "120px",
-    height: "auto",
-    alignSelf: "center",
-    marginBottom: "10px"
-  },
-  title: {
-    textAlign: "center",
-    margin: "0 0 15px 0",
-    fontSize: "22px",
-    fontWeight: "700",
-    color: "#000"
-  },
-  inputGroup: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "5px"
-  },
-  label: {
-    fontSize: "13px",
-    fontWeight: "600",
-    color: "#555",
-    marginLeft: "2px"
-  },
-  input: {
-    padding: "12px 15px",
-    borderRadius: "8px",
-    border: "1px solid #ddd",
-    fontSize: "14px",
-    transition: "border-color 0.2s",
-    outline: "none",
-    // เมื่อโฟกัสให้เป็นสีทอง
-    ':focus': {
-        borderColor: '#D4AF37'
-    }
-  },
+  logo: { width: "140px", height: "auto", alignSelf: "center", marginBottom: "5px" },
+  title: { textAlign: "center", margin: "0", fontSize: "20px", fontWeight: "700", color: "#000" },
+  inputGroup: { display: "flex", flexDirection: "column", gap: "5px" },
+  label: { fontSize: "13px", fontWeight: "600", color: "#666" },
+  input: { padding: "12px", borderRadius: "8px", border: "1px solid #ddd", outline: "none" },
   button: {
     padding: "12px",
     borderRadius: "8px",
     border: "none",
-    background: "#D4AF37", // ปุ่มสีทอง
-    color: "#000", // ตัวอักษรดำบนปุ่มทอง
+    background: "#D4AF37",
+    color: "#000",
     fontSize: "15px",
     fontWeight: "700",
     cursor: "pointer",
-    transition: "background 0.2s, transform 0.1s",
-    marginTop: "10px",
-    ':hover': {
-        background: '#C49F27'
-    },
-    ':active': {
-        transform: 'scale(0.98)'
-    }
+    marginTop: "10px"
   },
-  footerText: {
-    textAlign: "center",
-    fontSize: "11px",
-    color: "#999",
-    marginTop: "10px",
-    letterSpacing: "0.5px"
-  }
+  footerText: { textAlign: "center", fontSize: "11px", color: "#999", marginTop: "5px" }
 };
