@@ -1,3 +1,6 @@
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { auth } from "./firebase";
+import Login from "./Login";
 import { useState, useEffect, useRef } from "react";
 import { ref, onValue, set } from "firebase/database";
 import { db, DATA_PATH } from "./firebase.js";
@@ -554,13 +557,19 @@ function Settings({ notifyConfig, onSave, showToast }) {
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function EMemo() {
-  const [data,      setData]      = useState(null);
-  const [view,      setView]      = useState("dashboard");
-  const [selId,     setSelId]     = useState(null);
-  const [editMemo,  setEditMemo]  = useState(null);
-  const [modal,     setModal]     = useState(null);
-  const [toast,     setToast]     = useState(null);
-  const [syncing,   setSyncing]   = useState(false);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+    });
+
+    return () => unsub();
+  }, []);
+
+  if (!user) {
+    return <Login />;
+  };
 
   // ── Firebase real-time listener ───────────────────────────────────────────
   useEffect(() => {
@@ -691,7 +700,19 @@ export default function EMemo() {
         </button>)}
       </div>
     </div>
-
+<button
+  onClick={() => signOut(auth)}
+  style={{
+    width: "100%",
+    padding: "8px",
+    marginTop: "10px",
+    borderRadius: "6px",
+    border: "none",
+    cursor: "pointer"
+  }}
+>
+  Logout
+</button>
     {/* Main */}
     <div style={{ flex:1, overflowY:"auto" }}>
       {view==="dashboard" && <Dashboard memos={memos} users={users} currentUser={currentUser} inboxCount={inbox.length} onOpen={openMemo}/>}
