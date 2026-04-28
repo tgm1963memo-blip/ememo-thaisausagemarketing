@@ -60,6 +60,7 @@ const writeMemo = async (memoData, isNew) => {
 const patchMemo        = (id, patch)    => update(ref(db, `${DATA_PATH}/memos/${id}`), patch);
 const writeUsers       = (usersObj)     => set(ref(db, `${DATA_PATH}/users`), usersObj);
 const writeNotifyConfig= (cfg)          => set(ref(db, `${DATA_PATH}/notifyConfig`), cfg);
+const writePdfTemplate = (tpl)          => set(ref(db, `${DATA_PATH}/pdfTemplate`), tpl);
 
 // ── Notification senders ──────────────────────────────────────────────────────
 async function sendNotifications(cfg, memo, users) {
@@ -328,6 +329,162 @@ function NotifyPanel({ notify, setNotify, users, notifyConfig }) {
   );
 }
 
+// ── PDF Export ────────────────────────────────────────────────────────────────
+async function exportMemoPdf(memo, users, template = {}) {
+  const creator = users.find(u => u.id === memo.createdBy) || {};
+  const approvedSteps = (memo.workflow || []).filter(s => s.status === "approved");
+  const approvers = approvedSteps.map(s => {
+    const u = users.find(x => x.id === s.approver) || {};
+    return `${u.name || "-"} (${fmtShort(s.actionAt)})`;
+  });
+
+  const logoText   = template.logoText   || COMPANY_SHORT;
+  const companyName= template.companyName|| COMPANY;
+  const headerColor= template.headerColor|| "#D4AF37";
+  const showLogo   = template.showLogo   !== false;
+  const footerText = template.footerText || "เอกสารนี้ออกโดยระบบ E-Memo";
+  const showWatermark = template.showWatermark !== false;
+
+  const html = `
+  <html><head><meta charset="utf-8">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'Sarabun',sans-serif; font-size:13px; color:#111; background:#fff; padding:40px; }
+    .header { display:flex; align-items:center; justify-content:space-between; border-bottom:3px solid ${headerColor}; padding-bottom:14px; margin-bottom:20px; }
+    .logo-box { width:36px; height:36px; background:${headerColor}; border-radius:7px; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:700; color:#111; }
+    .company { font-size:11px; color:#6B7280; margin-top:2px; }
+    .doc-no { font-size:11px; color:#9CA3AF; text-align:right; }
+    .title { font-size:18px; font-weight:700; color:#111; margin-bottom:6px; }
+    .meta { display:flex; gap:16px; flex-wrap:wrap; font-size:11px; color:#6B7280; margin-bottom:20px; }
+    .badge { display:inline-block; padding:2px 10px; border-radius:4px; font-size:11px; font-weight:600; background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0; }
+    .section-title { font-size:10px; font-weight:700; color:#9CA3AF; text-transform:uppercase; letter-spacing:.6px; border-bottom:1px solid #F3F4F6; padding-bottom:5px; margin:18px 0 8px; }
+    .content { font-size:13px; line-height:1.85; white-space:pre-wrap; color:#374151; background:#FAFAFA; border:1px solid #F3F4F6; border-radius:6px; padding:14px; }
+    .approver-row { display:flex; align-items:center; gap:10; padding:7px 0; border-bottom:1px solid #F9FAFB; font-size:12px; }
+    .step-num { font-size:10px; color:#9CA3AF; min-width:30px; }
+    .sig-box { border:1px solid #E5E7EB; border-radius:6px; padding:10px 14px; margin-bottom:6px; background:#FAFAFA; }
+    .sig-name { font-size:12px; font-weight:600; color:#111; }
+    .sig-date { font-size:10px; color:#9CA3AF; margin-top:2px; }
+    .watermark { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-30deg); font-size:80px; font-weight:700; color:${headerColor}22; pointer-events:none; white-space:nowrap; z-index:0; }
+    .footer { border-top:1px solid #F3F4F6; margin-top:30px; padding-top:10px; font-size:10px; color:#9CA3AF; display:flex; justify-content:space-between; }
+  </style></head><body>
+  ${showWatermark ? `<div class="watermark">อนุมัติแล้ว</div>` : ""}
+  <div style="position:relative;z-index:1">
+    ${showLogo ? `
+    <div class="header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="logo-box">E</div>
+        <div><div style="font-size:13px;font-weight:700;color:${headerColor}">${logoText}</div><div class="company">${companyName}</div></div>
+      </div>
+      <div class="doc-no"><div style="font-weight:600">E-MEMO</div><div>${memo.id}</div></div>
+    </div>` : ""}
+    <div class="title">${memo.title || "-"}</div>
+    <div class="meta">
+      <span>📁 ${memo.category}</span>
+      <span>👤 ${creator.name || "-"}</span>
+      <span>📅 ${fmtDate(memo.createdAt)}</span>
+      <span class="badge">✅ อนุมัติแล้ว</span>
+    </div>
+    <div class="section-title">เนื้อหา</div>
+    <div class="content">${(memo.content || "").replace(/</g,"&lt;")}</div>
+    <div class="section-title">ลายเซ็นผู้อนุมัติ</div>
+    ${(memo.workflow || []).map((s, i) => {
+      const u = users.find(x => x.id === s.approver) || {};
+      const done = s.status === "approved";
+      return `<div class="sig-box" style="${done ? "" : "opacity:.4"}">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><div class="sig-name">ขั้น ${i + 1}: ${u.name || "-"}</div><div style="font-size:10px;color:#9CA3AF">${u.dept || ""} ${u.email ? "· " + u.email : ""}</div></div>
+          <div style="text-align:right"><div style="font-size:11px;font-weight:600;color:${done ? "#065F46" : "#9CA3AF"}">${done ? "✓ อนุมัติ" : "○ รอ"}</div>${s.actionAt ? `<div class="sig-date">${fmtDate(s.actionAt)}</div>` : ""}</div>
+        </div>
+        ${s.comment ? `<div style="font-size:11px;color:#6B7280;margin-top:6px;border-top:1px solid #F3F4F6;padding-top:5px">${s.comment}</div>` : ""}
+      </div>`;
+    }).join("")}
+    <div class="footer">
+      <span>${footerText}</span>
+      <span>พิมพ์เมื่อ: ${new Date().toLocaleDateString("th-TH", { day: "2-digit", month: "long", year: "numeric" })}</span>
+    </div>
+  </div>
+  </body></html>`;
+
+  const w = window.open("", "_blank", "width=800,height=900");
+  if (!w) return;
+  w.document.write(html);
+  w.document.close();
+  w.onload = () => { w.focus(); w.print(); };
+}
+
+// ── PDF Template Editor (superadmin only) ────────────────────────────────────
+function PdfTemplateEditor({ template, onSave, onClose }) {
+  const [t, setT] = useState({
+    logoText:    template.logoText    || COMPANY_SHORT,
+    companyName: template.companyName || COMPANY,
+    headerColor: template.headerColor || "#D4AF37",
+    footerText:  template.footerText  || "เอกสารนี้ออกโดยระบบ E-Memo",
+    showLogo:    template.showLogo    !== false,
+    showWatermark: template.showWatermark !== false,
+  });
+  const up = (k, v) => setT(p => ({ ...p, [k]: v }));
+  const COLOR_PRESETS = ["#D4AF37","#1E40AF","#065F46","#7C3AED","#DC2626","#111111"];
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", background:"rgba(0,0,0,.6)" }}>
+      <div style={{ background:"#fff", borderRadius:14, padding:28, width:500, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}>
+        <div style={{ fontSize:15, fontWeight:700, color:"#111", marginBottom:4 }}>🎨 ตั้งค่า Template PDF</div>
+        <div style={{ fontSize:12, color:"#9CA3AF", marginBottom:20 }}>กำหนดรูปแบบเอกสาร PDF ที่จะ Export จาก Memo ที่อนุมัติแล้ว</div>
+
+        <Field label="ชื่อย่อบริษัท (Header)">
+          <input value={t.logoText} onChange={e=>up("logoText",e.target.value)} style={IS}/>
+        </Field>
+        <Field label="ชื่อบริษัทเต็ม">
+          <input value={t.companyName} onChange={e=>up("companyName",e.target.value)} style={IS}/>
+        </Field>
+        <Field label="ข้อความ Footer">
+          <input value={t.footerText} onChange={e=>up("footerText",e.target.value)} style={IS}/>
+        </Field>
+        <Field label="สี Header">
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <input type="color" value={t.headerColor} onChange={e=>up("headerColor",e.target.value)}
+              style={{ width:36, height:36, padding:0, border:"1px solid #E5E7EB", borderRadius:6, cursor:"pointer" }}/>
+            <div style={{ display:"flex", gap:4 }}>
+              {COLOR_PRESETS.map(c => (
+                <div key={c} onClick={()=>up("headerColor",c)}
+                  style={{ width:22, height:22, borderRadius:4, background:c, cursor:"pointer", border:t.headerColor===c?"2px solid #111":"2px solid transparent" }}/>
+              ))}
+            </div>
+          </div>
+        </Field>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 12px", background:"#F9FAFB", borderRadius:6, border:"1px solid #F3F4F6" }}>
+            <span style={{ fontSize:12, color:"#374151" }}>แสดง Header/Logo</span>
+            <Toggle value={t.showLogo} onChange={v=>up("showLogo",v)}/>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 12px", background:"#F9FAFB", borderRadius:6, border:"1px solid #F3F4F6" }}>
+            <span style={{ fontSize:12, color:"#374151" }}>Watermark "อนุมัติแล้ว"</span>
+            <Toggle value={t.showWatermark} onChange={v=>up("showWatermark",v)}/>
+          </div>
+        </div>
+        {/* Preview strip */}
+        <div style={{ border:`2px solid ${t.headerColor}`, borderRadius:8, padding:"12px 16px", marginBottom:18, background:"#FAFAFA" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+            <div style={{ width:24, height:24, background:t.headerColor, borderRadius:5, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700, color:"#111" }}>E</div>
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:t.headerColor }}>{t.logoText}</div>
+              <div style={{ fontSize:9, color:"#9CA3AF" }}>{t.companyName}</div>
+            </div>
+          </div>
+          <div style={{ fontSize:11, color:"#374151", borderTop:`1px solid ${t.headerColor}44`, paddingTop:6 }}>
+            <strong>ชื่อ Memo</strong> · หมวดหมู่ · ผู้สร้าง
+          </div>
+          <div style={{ fontSize:9, color:"#9CA3AF", marginTop:4 }}>{t.footerText}</div>
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={()=>onSave(t)} style={{ ...BTN_GOLD, flex:1, padding:"10px" }}>💾 บันทึก Template</button>
+          <button onClick={onClose} style={{ flex:1, padding:"10px", background:"#F9FAFB", color:"#6B7280", border:"1px solid #E5E7EB", borderRadius:6, fontSize:12, cursor:"pointer" }}>ยกเลิก</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Views ─────────────────────────────────────────────────────────────────────
 function Dashboard({ memoList, users, curUser, inboxCount, onOpen }) {
   const stats = [
@@ -495,7 +652,7 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
   );
 }
 
-function DetailView({ memo, users, curUser, notifyConfig, onBack, onRecall, onEdit, onAddFile, onRemoveFile, setModal }) {
+function DetailView({ memo, users, curUser, notifyConfig, pdfTemplate, onBack, onRecall, onEdit, onAddFile, onRemoveFile, setModal }) {
   const fileRef    = useRef();
   const isCreator  = memo.createdBy === curUser.id;
   const canApprove = memo.status==="pending" && memo.workflow?.[memo.currentStep]?.approver===curUser.id && can(curUser.role,"approve");
@@ -592,6 +749,9 @@ function DetailView({ memo, users, curUser, notifyConfig, onBack, onRecall, onEd
             </Section>
           )}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {memo.status==="approved" && (
+              <button onClick={()=>exportMemoPdf(memo,users,pdfTemplate||{})} style={{padding:11,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:13,fontWeight:500,cursor:"pointer"}}>📄 Export PDF</button>
+            )}
             {canApprove && (
               <>
                 <button onClick={()=>setModal({type:"approve",memo})} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ อนุมัติ</button>
@@ -614,7 +774,46 @@ function DetailView({ memo, users, curUser, notifyConfig, onBack, onRecall, onEd
 function UsersMgmt({ users, curUser, showToast }) {
   const [editing, setEditing] = useState(null);
   const [delConfirm, setDelConfirm] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
+  const xlsxRef = useRef();
   const blank = { name:"", email:"", dept:"", role:"user", active:true };
+
+  const handleXlsxImport = async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    e.target.value = "";
+    try {
+      const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+      const buf  = await file.arrayBuffer();
+      const wb   = XLSX.read(buf, { type:"array" });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval:"" });
+      const parsed = rows.map(r => ({
+        name:  String(r["ชื่อ-สกุล"] || r["name"] || r["Name"] || "").trim(),
+        email: String(r["อีเมล์"] || r["email"] || r["Email"] || "").trim().toLowerCase(),
+        dept:  String(r["แผนก"] || r["dept"] || r["Department"] || "").trim(),
+        role:  ["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase()) ? String(r["สิทธิ์"]||r["role"]||"user").toLowerCase() : "user",
+        active: true,
+      })).filter(r => r.name && r.email && r.email.includes("@"));
+      if (!parsed.length) { showToast("ไม่พบข้อมูลที่ถูกต้องใน Excel","error"); return; }
+      setImportPreview(parsed);
+    } catch (err) {
+      showToast("อ่านไฟล์ไม่ได้: " + err.message, "error");
+    }
+  };
+
+  const confirmImport = async () => {
+    if (!importPreview) return;
+    const existing = Object.fromEntries(users.map(u => [u.id, u]));
+    let added = 0, updated = 0;
+    importPreview.forEach(r => {
+      const dup = users.find(u => u.email === r.email);
+      if (dup) { existing[dup.id] = { ...dup, name:r.name, dept:r.dept, role:r.role }; updated++; }
+      else      { const id = newUserId(); existing[id] = { ...r, id }; added++; }
+    });
+    await writeUsers(existing);
+    showToast(`นำเข้าสำเร็จ: เพิ่ม ${added} คน, อัปเดต ${updated} คน`);
+    setImportPreview(null);
+  };
   const save = async () => {
     if (!editing.name.trim()||!editing.email.trim()) { showToast("กรุณากรอกชื่อและอีเมล์","error"); return; }
     if (!editing.email.includes("@")) { showToast("รูปแบบอีเมล์ไม่ถูกต้อง","error"); return; }
@@ -643,9 +842,19 @@ function UsersMgmt({ users, curUser, showToast }) {
   };
   return (
     <div style={{padding:24}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
         <div><div style={{fontSize:18,fontWeight:600,color:"#111"}}>จัดการ User</div><div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>{users.length} บัญชี</div></div>
-        <button onClick={()=>setEditing(blank)} style={BTN_GOLD}>+ เพิ่ม User</button>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <input ref={xlsxRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleXlsxImport}/>
+          <button onClick={async()=>{
+            const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+            const ws = XLSX.utils.aoa_to_sheet([["ชื่อ-สกุล","อีเมล์","แผนก","สิทธิ์"],["สมชาย ใจดี","somchai@company.com","IT","user"]]);
+            const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Users");
+            XLSX.writeFile(wb,"user_template.xlsx");
+          }} style={{...BTN_GRAY,padding:"6px 12px",fontSize:12}}>⬇ ดาวน์โหลด Template</button>
+          <button onClick={()=>xlsxRef.current?.click()} style={{padding:"7px 14px",background:"#ECFDF5",color:"#065F46",border:"1px solid #A7F3D0",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>📥 Import Excel</button>
+          <button onClick={()=>setEditing(blank)} style={BTN_GOLD}>+ เพิ่ม User</button>
+        </div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
         {["superadmin","admin","user"].map(r=>{
@@ -703,11 +912,39 @@ function UsersMgmt({ users, curUser, showToast }) {
           </div>
         </div>
       )}
+      {importPreview && (
+        <div style={{position:"fixed",inset:0,zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.5)"}}>
+          <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:24,width:560,maxHeight:"80vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.2)"}}>
+            <div style={{fontSize:15,fontWeight:600,marginBottom:4,color:"#111"}}>📥 ตรวจสอบข้อมูลก่อน Import</div>
+            <div style={{fontSize:12,color:"#9CA3AF",marginBottom:14}}>พบ {importPreview.length} รายการ — อีเมล์ที่มีอยู่แล้วจะถูกอัปเดต</div>
+            <div style={{background:"#F9FAFB",borderRadius:8,overflow:"hidden",border:"1px solid #F3F4F6",marginBottom:16}}>
+              <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr",padding:"7px 12px",borderBottom:"1px solid #F3F4F6",background:"#F3F4F6"}}>
+                {["ชื่อ-สกุล","อีเมล์","แผนก","สิทธิ์"].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:"#6B7280"}}>{h}</div>)}
+              </div>
+              {importPreview.map((r,i)=>{
+                const isDup = !!users.find(u=>u.email===r.email);
+                return (
+                  <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr",padding:"7px 12px",borderBottom:"1px solid #F3F4F6",background:isDup?"#FFFBEB":"#fff"}}>
+                    <div style={{fontSize:12,color:"#374151"}}>{r.name} {isDup&&<span style={{fontSize:10,color:"#B45309"}}>(อัปเดต)</span>}</div>
+                    <div style={{fontSize:11,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.email}</div>
+                    <div style={{fontSize:12,color:"#374151"}}>{r.dept||"-"}</div>
+                    <div><RoleBadge role={r.role}/></div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={confirmImport} style={{...BTN_GOLD,flex:1,padding:"10px"}}>✓ ยืนยัน Import</button>
+              <button onClick={()=>setImportPreview(null)} style={{flex:1,padding:"10px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function SettingsView({ notifyConfig, showToast }) {
+function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
   const [cfg, setCfg] = useState(JSON.parse(JSON.stringify(notifyConfig)));
   const setC = (ch,k,v) => setCfg(p=>({...p,[ch]:{...p[ch],[k]:v}}));
   const save = async () => { await writeNotifyConfig(cfg); showToast("บันทึกการตั้งค่าแล้ว"); };
@@ -729,6 +966,13 @@ function SettingsView({ notifyConfig, showToast }) {
     <div style={{padding:24}}>
       <div style={{fontSize:18,fontWeight:600,color:"#111",marginBottom:4}}>ตั้งค่าการแจ้งเตือน</div>
       <div style={{fontSize:13,color:"#6B7280",marginBottom:20}}>เปิดใช้งานช่องทางที่ต้องการ — ส่งอัตโนมัติเมื่อ Memo อนุมัติครบทุกขั้น</div>
+      <div style={{background:"#EEEDFE",border:"1px solid #AFA9EC",borderRadius:10,padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontSize:13,fontWeight:600,color:"#3C3489"}}>🎨 Template PDF</div>
+          <div style={{fontSize:11,color:"#6B7280",marginTop:1}}>กำหนดรูปแบบ PDF ที่ Export จาก Memo ที่อนุมัติแล้ว</div>
+        </div>
+        <button onClick={onOpenPdfTemplate} style={{padding:"7px 16px",background:"#3C3489",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>ตั้งค่า Template</button>
+      </div>
       {channels.map(ch=>(
         <div key={ch.id} style={{background:"#fff",border:`1px solid ${cfg[ch.id]?.enabled?"#E5E7EB":"#F3F4F6"}`,borderRadius:10,marginBottom:12,overflow:"hidden"}}>
           <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",background:cfg[ch.id]?.enabled?"#F9FAFB":"transparent"}} onClick={()=>setC(ch.id,"enabled",!cfg[ch.id]?.enabled)}>
@@ -767,6 +1011,7 @@ export default function EMemo() {
   const [modal,     setModal]     = useState(null);
   const [toast,     setToast]     = useState(null);
   const [syncing,   setSyncing]   = useState(false);
+  const [showPdfEditor, setShowPdfEditor] = useState(false);
 
   // ── Auth listener (from uploaded file) ───────────────────────────────────
   useEffect(() => {
@@ -805,16 +1050,13 @@ export default function EMemo() {
   const users    = Object.values(data.users    || {});
   const memoList = Object.values(data.memos    || {});
   const notifyConfig = data.notifyConfig || { email:{}, teams:{}, powerauto:{}, line:{} };
+  const pdfTemplate  = data.pdfTemplate  || {};
 
   // curUser: match Firebase auth email to user in DB (from uploaded file)
-  const SUPERADMIN_EMAILS = ["thitiwat.tan@tgm.co.th"];
-  const _curUser = users.find(u => u.email === authUser.email) || {
+  const curUser = users.find(u => u.email === authUser.email) || {
     id: authUser.uid, name: authUser.displayName || authUser.email,
     role: "user", dept: "-", email: authUser.email, active: true,
   };
-  const curUser = SUPERADMIN_EMAILS.includes(authUser.email)
-    ? { ..._curUser, role: "superadmin" }
-    : _curUser;
 
   const inbox   = memoList.filter(m => m.status==="pending" && m.workflow?.[m.currentStep]?.approver===curUser.id);
   const myMemos = memoList.filter(m => m.createdBy === curUser.id);
@@ -910,6 +1152,13 @@ export default function EMemo() {
       <Toast t={toast}/>
       {syncing && <div style={{position:"fixed",bottom:16,left:216,background:"#FFFBEB",color:"#B45309",border:"1px solid #FCD34D",borderRadius:6,padding:"4px 10px",fontSize:11,zIndex:100}}>⟳ กำลังบันทึก...</div>}
       {modal && <ActionModal modal={modal} onClose={()=>setModal(null)} onApprove={c=>approveMemo(modal.memo,c)} onReject={c=>rejectMemo(modal.memo,c)}/>}
+      {showPdfEditor && can(curUser.role,"settings") && (
+        <PdfTemplateEditor
+          template={pdfTemplate}
+          onSave={async(t)=>{ await writePdfTemplate(t); showToast("บันทึก Template PDF แล้ว"); setShowPdfEditor(false); }}
+          onClose={()=>setShowPdfEditor(false)}
+        />
+      )}
 
       {/* ── Sidebar (black theme from uploaded file) ── */}
       <div style={{ width:210, background:BLACK, color:"#fff", display:"flex", flexDirection:"column", flexShrink:0 }}>
@@ -966,9 +1215,9 @@ export default function EMemo() {
         {view==="all"       && can(curUser.role,"viewAll") && <MemoListView memoList={memoList} users={users} title="Memo ทั้งหมด" curUser={curUser} onOpen={openMemo}/>}
         {view==="search"    && <SearchView memoList={curUser.role==="user"?memoList.filter(m=>m.createdBy===curUser.id||m.workflow?.find(s=>s.approver===curUser.id)):memoList} users={users} curUser={curUser} onOpen={openMemo}/>}
         {view==="users"     && can(curUser.role,"manageUsers") && <UsersMgmt users={users} curUser={curUser} showToast={showToast}/>}
-        {view==="settings"  && can(curUser.role,"settings") && <SettingsView notifyConfig={notifyConfig} showToast={showToast}/>}
+        {view==="settings"  && can(curUser.role,"settings") && <SettingsView notifyConfig={notifyConfig} showToast={showToast} onOpenPdfTemplate={()=>setShowPdfEditor(true)}/>}
         {view==="create"    && editMemo && <CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"}/>}
-        {view==="detail"    && selMemo  && <DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal}/>}
+        {view==="detail"    && selMemo  && <DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplate={pdfTemplate} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal}/>}
       </div>
     </div>
   );
