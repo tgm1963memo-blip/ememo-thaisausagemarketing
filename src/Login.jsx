@@ -47,7 +47,7 @@ export default function Login() {
           <input
             style={styles.input}
             type="email"
-            placeholder="example@thaisauces.co.th"
+            placeholder="example@tgm.co.th"
             onChange={(e) => setEmail(e.target.value)}
           />
         </div>
