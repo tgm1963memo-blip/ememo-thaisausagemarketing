@@ -1,8 +1,23 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { onAuthStateChanged, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail, getAuth } from "firebase/auth";
 import { ref, onValue, set, push, update } from "firebase/database";
+import { initializeApp, getApps } from "firebase/app";
 import { auth, db, DATA_PATH } from "./firebase";
 import Login from "./Login";
+import MemoPDFPreview from "./MemoPDFPreview";
+
+// Secondary Firebase app — create users without signing out admin
+let _secondaryApp = null;
+function getSecondaryAuth() {
+  const primary = getApps().find(a => a.name === "[DEFAULT]");
+  if (!primary) return null;
+  try {
+    if (!_secondaryApp) {
+      _secondaryApp = initializeApp(primary.options, "sec_" + Date.now());
+    }
+    return getAuth(_secondaryApp);
+  } catch { return null; }
+}
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 const GOLD  = "#D4AF37";
@@ -829,6 +844,7 @@ function WorkflowLevelBuilder({ levels, setLevels, users, curUser }) {
 
 function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSubmit, onCancel, isRecall, onOpenSigZones }) {
   const fileRef = useRef();
+  const [showPreview, setShowPreview] = useState(false);
   const update  = (k,v) => setEditMemo(p=>({...p,[k]:v}));
   const setNotify=(fn)=>setEditMemo(p=>({...p,notify:typeof fn==="function"?fn(p.notify||{}):fn}));
   const handleFile = ev => {
@@ -842,9 +858,20 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
 
   return (
     <div style={{padding:24}}>
+      {showPreview && (
+        <MemoPDFPreview
+          memo={editMemo}
+          users={users}
+          onSaveZones={zones => { setEditMemo(p=>({...p,signatureZones:zones})); setShowPreview(false); }}
+          onClose={() => setShowPreview(false)}
+        />
+      )}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
         <button onClick={onCancel} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,color:"#9CA3AF",padding:0,lineHeight:1}}>←</button>
         <div style={{fontSize:18,fontWeight:600,color:"#111"}}>{editMemo.id?(isRecall?"แก้ไข Memo (เรียกคืน)":"แก้ไข Memo"):"สร้าง Memo ใหม่"}</div>
+        <button onClick={()=>setShowPreview(true)} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,padding:"7px 14px",background:"#1D4ED8",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>
+          👁 ตัวอย่าง / PDF
+        </button>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:16,alignItems:"start"}}>
         <div>
@@ -877,6 +904,7 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <button onClick={()=>onSubmit(false)} style={{...BTN_GOLD,width:"100%",padding:"11px",fontSize:13}}>{isRecall?"ส่งกลับเพื่ออนุมัติ":"ส่งเพื่ออนุมัติ"}</button>
             <button onClick={()=>onSubmit(true)}  style={{padding:"11px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>บันทึกร่าง</button>
+            <button onClick={()=>setShowPreview(true)} style={{padding:"11px",background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:12,fontWeight:500,cursor:"pointer"}}>👁 ดูตัวอย่าง / กำหนดจุดลงนาม / โหลด PDF</button>
             <button onClick={onCancel}             style={{padding:"11px",background:"none",color:"#9CA3AF",border:"none",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button>
           </div>
         </div>
@@ -987,7 +1015,39 @@ function UsersMgmt({ users, curUser, showToast }) {
   const xlsxRef=useRef(); const blank={name:"",email:"",dept:"",role:"user",active:true};
   const handleXlsxImport=async(e)=>{const file=e.target.files[0];if(!file)return;e.target.value="";try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:""});const parsed=rows.map(r=>({name:String(r["ชื่อ-สกุล"]||r["name"]||"").trim(),email:String(r["อีเมล์"]||r["email"]||"").trim().toLowerCase(),dept:String(r["แผนก"]||r["dept"]||"").trim(),role:["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase())?String(r["สิทธิ์"]||r["role"]||"user").toLowerCase():"user",active:true})).filter(r=>r.name&&r.email&&r.email.includes("@"));if(!parsed.length){showToast("ไม่พบข้อมูลที่ถูกต้อง","error");return;}setImportPreview(parsed);}catch(err){showToast("อ่านไฟล์ไม่ได้: "+err.message,"error");}};
   const confirmImport=async()=>{if(!importPreview)return;const existing=Object.fromEntries(users.map(u=>[u.id,u]));let added=0,updated=0;importPreview.forEach(r=>{const dup=users.find(u=>u.email===r.email);if(dup){existing[dup.id]={...dup,name:r.name,dept:r.dept,role:r.role};updated++;}else{const id=newId("u");existing[id]={...r,id};added++;}});await writeUsers(existing);showToast(`นำเข้าสำเร็จ: เพิ่ม ${added} คน, อัปเดต ${updated} คน`);setImportPreview(null);};
-  const save=async()=>{if(!editing.name.trim()||!editing.email.trim()){showToast("กรุณากรอกชื่อและอีเมล์","error");return;}if(!editing.email.includes("@")){showToast("รูปแบบอีเมล์ไม่ถูกต้อง","error");return;}if(!editing.id&&users.find(u=>u.email===editing.email.trim())){showToast("อีเมล์นี้มีในระบบแล้ว","error");return;}const id=editing.id||newId("u");const newUser={...editing,id,name:editing.name.trim(),email:editing.email.trim()};const newObj={...Object.fromEntries(users.map(u=>[u.id,u])),[id]:newUser};await writeUsers(newObj);showToast(editing.id?"บันทึกแล้ว":"เพิ่ม User แล้ว");setEditing(null);};
+  const save=async()=>{
+    if(!editing.name.trim()||!editing.email.trim()){showToast("กรุณากรอกชื่อและอีเมล์","error");return;}
+    if(!editing.email.includes("@")){showToast("รูปแบบอีเมล์ไม่ถูกต้อง","error");return;}
+    if(!editing.id&&users.find(u=>u.email===editing.email.trim())){showToast("อีเมล์นี้มีในระบบแล้ว","error");return;}
+    const id=editing.id||newId("u");
+    const newUser={...editing,id,name:editing.name.trim(),email:editing.email.trim()};
+    const newObj={...Object.fromEntries(users.map(u=>[u.id,u])),[id]:newUser};
+    await writeUsers(newObj);
+    // Create Firebase Auth account for new users (without logging out admin)
+    if(!editing.id){
+      const tmpPwd=Math.random().toString(36).slice(2,10)+"A1!";
+      try{
+        const secAuth=getSecondaryAuth();
+        if(secAuth){
+          await createUserWithEmailAndPassword(secAuth,editing.email.trim(),tmpPwd);
+          await sendPasswordResetEmail(secAuth,editing.email.trim());
+          showToast("เพิ่ม User แล้ว — ส่งอีเมล์ตั้งรหัสผ่านไปที่ "+editing.email.trim(),"success");
+        } else {
+          showToast("เพิ่ม User แล้ว (สร้าง Auth ไม่ได้ — ให้ Admin สร้างใน Firebase Console)","success");
+        }
+      }catch(authErr){
+        if(authErr.code==="auth/email-already-in-use"){
+          // Account exists — just send reset email
+          try{ await sendPasswordResetEmail(auth,editing.email.trim()); showToast("เพิ่ม User แล้ว — ส่งอีเมล์รีเซ็ตรหัสผ่านให้แล้ว","success"); }catch{}
+        } else {
+          showToast("เพิ่ม User แล้ว แต่สร้าง Auth account ไม่สำเร็จ: "+authErr.code,"success");
+        }
+      }
+    } else {
+      showToast("บันทึกแล้ว");
+    }
+    setEditing(null);
+  };
   const toggle=async u=>{if(u.id===curUser.id){showToast("ไม่สามารถระงับตัวเองได้","error");return;}await update(ref(db,`${DATA_PATH}/users/${u.id}`),{active:!u.active});showToast(u.active?"ระงับแล้ว":"เปิดแล้ว");};
   const del=async u=>{const newObj=Object.fromEntries(users.filter(x=>x.id!==u.id).map(x=>[x.id,x]));await writeUsers(newObj);showToast("ลบแล้ว");setDelConfirm(null);};
   // [4] Role descriptions with permission list
@@ -1017,6 +1077,7 @@ function UsersMgmt({ users, curUser, showToast }) {
             <div><span style={{fontSize:11,fontWeight:500,color:u.active?"#065F46":"#991B1B",background:u.active?"#ECFDF5":"#FFF1F1",border:`1px solid ${u.active?"#A7F3D0":"#FECACA"}`,borderRadius:4,padding:"2px 7px"}}>{u.active?"ใช้งาน":"ระงับ"}</span></div>
             <div style={{display:"flex",gap:4}}>
               <button onClick={()=>setEditing({...u})} style={BTN_GRAY}>แก้ไข</button>
+              <button onClick={async()=>{try{await sendPasswordResetEmail(auth,u.email);showToast("ส่งอีเมล์รีเซ็ตรหัสผ่านให้ "+u.email+" แล้ว");}catch(e){showToast("ส่งไม่สำเร็จ: "+e.code,"error");}}} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",cursor:"pointer"}} title="ส่งลิงก์รีเซ็ตรหัสผ่าน">🔑</button>
               <button onClick={()=>toggle(u)} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:u.active?"#FFFBEB":"#ECFDF5",color:u.active?"#B45309":"#065F46",border:`1px solid ${u.active?"#FCD34D":"#A7F3D0"}`,cursor:"pointer"}}>{u.active?"ระงับ":"เปิด"}</button>
               {u.id!==curUser.id&&<button onClick={()=>setDelConfirm(u)} style={{...BTN_X,color:"#DC2626",padding:"3px 6px",border:"1px solid #FECACA",borderRadius:5,background:"#FFF1F1"}}>ลบ</button>}
             </div>
