@@ -1,25 +1,26 @@
 import React, { useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { ref, onValue, update, push } from "firebase/database";
+import { ref, onValue, set, push, update } from "firebase/database";
 import { auth, db } from "./firebase"; 
 import Login from "./Login";
 
-// ── Configuration ──────────────────────────────────────────────────────────
-const DATA_PATH = "ememo_data";
-const STATUS_LABEL = { draft:"ร่าง", pending:"รออนุมัติ", approved:"อนุมัติแล้ว", rejected:"ปฏิเสธ", recalled:"เรียกคืนแล้ว" };
-const STATUS_COLOR = {
+// ── Constants ────────────────────────────────────────────────────────────────
+const DATA_PATH     = "ememo_data";
+const CATEGORIES    = ["ทั่วไป","งบประมาณ","จัดซื้อจัดจ้าง","รายงาน","นโยบาย","HR","IT","อื่นๆ"];
+const STATUS_LABEL  = { draft:"ร่าง", pending:\"รออนุมัติ\", approved:\"อนุมัติแล้ว\", rejected:\"ปฏิเสธ\", recalled:\"เรียกคืนแล้ว\" };
+const STATUS_COLOR  = {
   pending:  { bg:"#FFFBEB", text:"#B45309", border:"#FCD34D" },
   approved: { bg:"#ECFDF5", text:"#065F46", border:"#A7F3D0" },
   rejected: { bg:"#FFF1F1", text:"#991B1B", border:"#FECACA" },
   default:  { bg:"#F9FAFB", text:"#6B7280", border:"#E5E7EB" }
 };
 
-// ฟังก์ชันตรวจสอบสิทธิ์จากไฟล์เดิม
+// ฟังก์ชันตรวจสอบสิทธิ์ (จากไฟล์ App.jsx เดิม)
 const can = (role, action) => {
   const perms = {
-    superadmin: ["manageUsers", "settings", "viewAll", "create"],
-    admin: ["viewAll", "create"],
-    user: ["create"]
+    superadmin: ["manageUsers", "settings", "viewAll", "create", "approve"],
+    admin:      ["viewAll", "create", "approve"],
+    user:       ["create"]
   };
   return perms[role]?.includes(action);
 };
@@ -28,7 +29,8 @@ export default function EMemo() {
   const [authUser, setAuthUser] = useState(undefined);
   const [data, setData] = useState(null);
   const [view, setView] = useState("dashboard");
-  const [editMemo, setEditMemo] = useState(null);
+  const [editMemo, setEditMemo] = useState(null); // สำหรับสร้าง/แก้ไข
+  const [selMemo, setSelMemo] = useState(null);   // สำหรับดูรายละเอียด
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setAuthUser(u || null));
@@ -37,30 +39,44 @@ export default function EMemo() {
 
   useEffect(() => {
     if (!authUser) return;
-    return onValue(ref(db, DATA_PATH), (snap) => setData(snap.val() || { users:[], memos:[] }));
+    return onValue(ref(db, DATA_PATH), (snap) => {
+      setData(snap.val() || { users:[], memos:[] });
+    });
   }, [authUser]);
 
-  if (authUser === undefined) return null;
+  if (authUser === undefined) return <div style={{ padding: 20 }}>กำลังโหลด...</div>;
   if (!authUser) return <Login />;
-  if (!data) return <div style={{ padding: 20 }}>กำลังโหลด...</div>;
+  if (!data) return <div style={{ padding: 20 }}>กำลังเชื่อมต่อฐานข้อมูล...</div>;
 
   const { users = [], memos = [] } = data;
-  const curUser = users.find(u => u.email === authUser.email) || { id: "u-tmp", name: authUser.email, role: "user", dept: "TGM Staff" };
+  const curUser = users.find(u => u.email === authUser.email) || { id:"tmp", name: authUser.email, role: "user", dept: "TGM Staff" };
 
-  // ฟังก์ชันสร้าง Memo ใหม่
+  // ฟังก์ชันเริ่มสร้าง Memo (จากไฟล์เดิม)
   const startCreate = () => {
-    setEditMemo({ title: "", category: "ทั่วไป", content: "", status: "draft" });
+    setEditMemo({ title: "", category: "ทั่วไป", content: "", status: "pending", createdBy: curUser.id, createdAt: new Date().toISOString() });
     setView("create");
+  };
+
+  // ฟังก์ชันเลือกดู Memo
+  const openMemo = (m) => {
+    setSelMemo(m);
+    setView("detail");
   };
 
   return (
     <div style={{ display:"flex", height:"100vh", background:"#F3F4F6", fontFamily:"'Noto Sans Thai', sans-serif" }}>
       
-      {/* Sidebar - TGM Theme */}
+      {/* Sidebar - TGM Black Theme */}
       <div style={{ width:260, background:"#000", color:"#fff", display:"flex", flexDirection:"column" }}>
         <div style={{ padding:"30px 20px", textAlign: 'center', borderBottom: '1px solid #222' }}>
-          <img src="/TGM-01-scaled.jpg" alt="TGM" style={{ width: "100px", marginBottom: "10px" }} />
-          <div style={{ color: "#D4AF37", fontWeight: 700, fontSize: '14px' }}>E-MEMO SYSTEM</div>
+          {/* ตรวจสอบว่าไฟล์ชื่อ TGM-01-scaled.jpg อยู่ในโฟลเดอร์ public */}
+          <img 
+            src="/TGM-01-scaled.jpg" 
+            alt="TGM" 
+            style={{ width: "100px", marginBottom: "10px" }} 
+            onError={(e) => { e.target.src = "https://via.placeholder.com/100?text=TGM+LOGO"; }}
+          />
+          <div style={{ color: "#D4AF37", fontWeight: 700, fontSize: '14px', letterSpacing: '1px' }}>E-MEMO SYSTEM</div>
         </div>
 
         <nav style={{ flex:1, padding:"20px 10px" }}>
@@ -68,9 +84,18 @@ export default function EMemo() {
             <button onClick={startCreate} style={styles.createBtn}>+ สร้าง Memo ใหม่</button>
           )}
           
-          <button onClick={() => setView("dashboard")} style={view === "dashboard" ? styles.navActive : styles.navBtn}>⊞ ภาพรวม</button>
-          <button onClick={() => setView("inbox")} style={view === "inbox" ? styles.navActive : styles.navBtn}>↓ กล่องขาเข้า</button>
-          <button onClick={() => setView("myMemos")} style={view === "myMemos" ? styles.navActive : styles.navBtn}>◉ Memo ของฉัน</button>
+          {['dashboard', 'inbox', 'myMemos', 'all'].map(m => (
+            <button key={m} onClick={() => setView(m)} style={{
+              ...styles.navBtn,
+              background: view === m ? "rgba(212, 175, 55, 0.15)" : "transparent",
+              color: view === m ? "#D4AF37" : "#ccc"
+            }}>
+              {m === 'dashboard' && '⊞ ภาพรวม'}
+              {m === 'inbox' && '↓ กล่องขาเข้า'}
+              {m === 'myMemos' && '◉ Memo ของฉัน'}
+              {m === 'all' && '≡ รายการทั้งหมด'}
+            </button>
+          ))}
           
           {can(curUser.role, "manageUsers") && (
             <button onClick={() => setView("users")} style={view === "users" ? styles.navActive : styles.navBtn}>👥 จัดการผู้ใช้</button>
@@ -79,36 +104,66 @@ export default function EMemo() {
 
         <div style={{ padding:20, background:"#111", borderTop:"1px solid #222" }}>
           <div style={{ fontSize:13, fontWeight:600, color: "#D4AF37" }}>{curUser.name}</div>
-          <div style={{ fontSize:11, color:"#777", marginBottom:10 }}>{curUser.dept} ({curUser.role})</div>
+          <div style={{ fontSize:11, color:"#777", marginBottom:10 }}>{curUser.dept}</div>
           <button onClick={() => signOut(auth)} style={styles.logoutBtn}>ออกจากระบบ</button>
         </div>
       </div>
 
-      {/* Main Content Area */}
+      {/* Main Content */}
       <div style={{ flex:1, padding:"30px 40px", overflowY:"auto" }}>
-        <h2 style={{ color:"#000", marginBottom:20, borderBottom: '2px solid #DDD', paddingBottom: 10 }}>
-          {view === 'dashboard' ? 'ภาพรวมระบบ' : view.toUpperCase()}
-        </h2>
+        <header style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:25 }}>
+           <h2 style={{ color:"#000", margin:0 }}>{view.toUpperCase()}</h2>
+           {view === "detail" && <button onClick={() => setView("all")} style={styles.backBtn}>← กลับ</button>}
+        </header>
 
-        {/* ส่วนแสดงรายการ (ปรับปรุงตามไฟล์เดิม) */}
-        {memos.length === 0 ? (
-          <div style={styles.emptyState}>📂 ยังไม่มีรายการข้อมูลในระบบ</div>
+        {/* Render Views ตามฟังก์ชันเดิม */}
+        {view === "create" ? (
+          <div style={styles.formCard}>
+             <h3>แบบฟอร์มบันทึกข้อความ</h3>
+             <input style={styles.input} placeholder="หัวข้อเรื่อง" onChange={e => setEditMemo({...editMemo, title: e.target.value})} />
+             <select style={styles.input} onChange={e => setEditMemo({...editMemo, category: e.target.value})}>
+                {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+             </select>
+             <textarea style={{...styles.input, height:150}} placeholder="เนื้อหา..." onChange={e => setEditMemo({...editMemo, content: e.target.value})} />
+             <button style={styles.createBtn} onClick={() => {
+                const newRef = push(ref(db, `${DATA_PATH}/memos`));
+                set(newRef, {...editMemo, id: newRef.key}).then(() => setView("all"));
+             }}>ส่งบันทึก</button>
+          </div>
+        ) : view === "detail" && selMemo ? (
+          <div style={styles.formCard}>
+             <div style={{display:'flex', justifyContent:'space-between'}}>
+                <StatusBadge status={selMemo.status} />
+                <span style={{fontSize:12, color:'#999'}}>{selMemo.createdAt}</span>
+             </div>
+             <h2 style={{marginTop:10}}>{selMemo.title}</h2>
+             <p style={{whiteSpace:'pre-wrap', color:'#444'}}>{selMemo.content}</p>
+             <hr style={{border:'0.5px solid #eee', margin:'20px 0'}}/>
+             {can(curUser.role, "approve") && selMemo.status === "pending" && (
+                <div style={{display:'flex', gap:10}}>
+                   <button style={{...styles.actionBtn, background:'#10b981'}} onClick={() => update(ref(db, `${DATA_PATH}/memos/${selMemo.id}`), {status:'approved'}).then(()=>setView("all"))}>อนุมัติ</button>
+                   <button style={{...styles.actionBtn, background:'#ef4444'}} onClick={() => update(ref(db, `${DATA_PATH}/memos/${selMemo.id}`), {status:'rejected'}).then(()=>setView("all"))}>ปฏิเสธ</button>
+                </div>
+             )}
+          </div>
         ) : (
           <div style={{ display:"grid", gap:10 }}>
-            {memos.filter(m => curUser.role !== 'user' || m.createdBy === curUser.id).map(m => {
-              const c = STATUS_COLOR[m.status] || STATUS_COLOR.default;
-              return (
-                <div key={m.id} style={styles.memoCard}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight:600, fontSize: "16px" }}>{m.title}</div>
-                    <div style={{ fontSize:12, color:"#888" }}>{m.category} • สร้างเมื่อ {m.createdAt}</div>
+            {memos.length === 0 ? (
+              <div style={styles.emptyState}>📂 ยังไม่มีรายการข้อมูล</div>
+            ) : (
+              memos.map(m => {
+                const c = STATUS_COLOR[m.status] || STATUS_COLOR.default;
+                return (
+                  <div key={m.id} onClick={() => openMemo(m)} style={styles.memoCard}>
+                    <div>
+                      <div style={{ fontWeight:600 }}>{m.title}</div>
+                      <div style={{ fontSize:12, color:"#888" }}>{m.category} • โดย {users.find(u=>u.id===m.createdBy)?.name || 'Unknown'}</div>
+                    </div>
+                    <StatusBadge status={m.status} />
                   </div>
-                  <span style={{ ...styles.badge, background:c.bg, color:c.text, border:`1px solid ${c.border}` }}>
-                    {STATUS_LABEL[m.status] || m.status}
-                  </span>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         )}
       </div>
@@ -116,12 +171,21 @@ export default function EMemo() {
   );
 }
 
+// Sub-Components
+function StatusBadge({ status }) { 
+  const c = STATUS_COLOR[status] || STATUS_COLOR.default; 
+  return <span style={{ background:c.bg, color:c.text, border:`1px solid ${c.border}`, borderRadius:20, padding:"3px 12px", fontSize:11, fontWeight:600 }}>{STATUS_LABEL[status] || status}</span>; 
+}
+
 const styles = {
   createBtn: { width:"100%", padding:12, background:"#D4AF37", color:"#000", border:"none", borderRadius:8, fontWeight:700, cursor:"pointer", marginBottom:20 },
-  navBtn: { width:"100%", padding:"12px 15px", textAlign:"left", border:"none", background: "transparent", color: "#ccc", borderRadius:6, cursor:"pointer", fontSize:14, marginBottom:4 },
-  navActive: { width:"100%", padding:"12px 15px", textAlign:"left", border:"none", background: "rgba(212, 175, 55, 0.15)", color: "#D4AF37", fontWeight: "600", borderRadius:6, cursor:"pointer", fontSize:14, marginBottom:4 },
-  logoutBtn: { width:"100%", padding:8, fontSize:11, color:"#fff", background:"#333", border:"none", borderRadius:4, cursor:"pointer" },
-  memoCard: { background:"#fff", padding:"18px", borderRadius:12, border:"1px solid #eee", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow: "0 2px 4px rgba(0,0,0,0.05)" },
-  badge: { padding:"4px 12px", borderRadius:20, fontSize:11, fontWeight:600 },
-  emptyState: { textAlign:"center", padding:80, color:"#999", border:"2px dashed #ccc", borderRadius:12, background:"#fff" }
+  navBtn: { width:"100%", padding:"12px 15px", textAlign:"left", border:"none", borderRadius:6, cursor:"pointer", fontSize:14, marginBottom:4 },
+  navActive: { width:"100%", padding:"12px 15px", textAlign:"left", border:"none", borderRadius:6, cursor:"pointer", fontSize:14, marginBottom:4, background: "rgba(212, 175, 55, 0.15)", color: "#D4AF37" },
+  logoutBtn: { width:"100%", padding:6, fontSize:11, color:"#fff", background:"#333", border:"none", borderRadius:4, cursor:"pointer" },
+  memoCard: { background:"#fff", padding:20, borderRadius:12, border:"1px solid #eee", display:"flex", justifyContent:"space-between", alignItems:"center", cursor:'pointer', transition:'0.2s' },
+  emptyState: { textAlign:"center", padding:60, color:"#999", border:"2px dashed #ccc", borderRadius:10, background:"#fff" },
+  formCard: { background: "#fff", padding: 30, borderRadius: 12, boxShadow: "0 4px 15px rgba(0,0,0,0.05)" },
+  input: { width: '100%', padding: 12, marginBottom: 15, borderRadius: 8, border: '1px solid #ddd', boxSizing: 'border-box' },
+  backBtn: { padding: '8px 15px', borderRadius: 6, border: '1px solid #ddd', background: '#fff', cursor: 'pointer' },
+  actionBtn: { padding: '10px 25px', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }
 };
