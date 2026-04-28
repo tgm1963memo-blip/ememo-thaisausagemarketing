@@ -59,8 +59,22 @@ const writeMemo = async (memoData, isNew) => {
 };
 const patchMemo        = (id, patch)    => update(ref(db, `${DATA_PATH}/memos/${id}`), patch);
 const writeUsers       = (usersObj)     => set(ref(db, `${DATA_PATH}/users`), usersObj);
-const writeNotifyConfig= (cfg)          => set(ref(db, `${DATA_PATH}/notifyConfig`), cfg);
-const writePdfTemplate = (tpl)          => set(ref(db, `${DATA_PATH}/pdfTemplate`), tpl);
+const writeNotifyConfig  = (cfg)       => set(ref(db, `${DATA_PATH}/notifyConfig`), cfg);
+const writePdfTemplates  = (tpls)      => set(ref(db, `${DATA_PATH}/pdfTemplates`), tpls);
+const writeDocCounters   = (ctrs)      => set(ref(db, `${DATA_PATH}/docCounters`), ctrs);
+
+// Auto-increment doc number per dept: format DEPT-YYYY-NNNN
+async function assignDocNo(memo, users, docCounters) {
+  const creator = users.find(u => u.id === memo.createdBy) || {};
+  const dept    = (creator.dept || "GEN").toUpperCase().replace(/\s+/g,"").slice(0,6);
+  const year    = new Date().getFullYear() + 543; // Buddhist Era
+  const key     = `${dept}_${year}`;
+  const cur     = (docCounters?.[key] || 0) + 1;
+  const docNo   = `${dept}-${year}-${String(cur).padStart(4,"0")}`;
+  // Persist counter
+  await update(ref(db, `${DATA_PATH}/docCounters`), { [key]: cur });
+  return docNo;
+}
 
 // ── Notification senders ──────────────────────────────────────────────────────
 async function sendNotifications(cfg, memo, users) {
@@ -330,156 +344,263 @@ function NotifyPanel({ notify, setNotify, users, notifyConfig }) {
 }
 
 // ── PDF Export ────────────────────────────────────────────────────────────────
-async function exportMemoPdf(memo, users, template = {}) {
+// ── DOCX Template Export ──────────────────────────────────────────────────────
+// Placeholder spec: {{field}} in docx is replaced with memo data
+// Supported: {{docNo}} {{title}} {{content}} {{category}} {{createdBy}}
+//            {{createdAt}} {{dept}} {{approver1}} {{approver1Date}} {{approver2}} ...
+//            {{approvedDate}} {{company}}
+
+async function exportMemoDocx(memo, users, template) {
+  if (!template?.fileBase64) {
+    alert("Template นี้ยังไม่มีไฟล์ .docx กรุณาอัพโหลดไฟล์ก่อน");
+    return;
+  }
   const creator = users.find(u => u.id === memo.createdBy) || {};
-  const approvedSteps = (memo.workflow || []).filter(s => s.status === "approved");
-  const approvers = approvedSteps.map(s => {
-    const u = users.find(x => x.id === s.approver) || {};
-    return `${u.name || "-"} (${fmtShort(s.actionAt)})`;
+  const approvedAt = (memo.workflow||[]).filter(s=>s.status==="approved").slice(-1)[0]?.actionAt;
+  const replacements = {
+    "{{docNo}}":       memo.docNo || memo.id,
+    "{{title}}":       memo.title || "",
+    "{{content}}":     memo.content || "",
+    "{{category}}":    memo.category || "",
+    "{{createdBy}}":   creator.name || "",
+    "{{dept}}":        creator.dept || "",
+    "{{createdAt}}":   memo.createdAt ? fmtDate(memo.createdAt) : "",
+    "{{approvedDate}}":approvedAt ? fmtDate(approvedAt) : "",
+    "{{company}}":     COMPANY,
+    "{{status}}":      "อนุมัติแล้ว",
+  };
+  // approverN, approverNDate for each workflow step
+  (memo.workflow||[]).forEach((s, i) => {
+    const u = users.find(x=>x.id===s.approver)||{};
+    replacements[`{{approver${i+1}}}`]     = u.name || "";
+    replacements[`{{approver${i+1}Dept}}`] = u.dept || "";
+    replacements[`{{approver${i+1}Date}}`] = s.actionAt ? fmtDate(s.actionAt) : "";
+    replacements[`{{approver${i+1}Status}}`] = s.status==="approved"?"✓ อนุมัติ":s.status==="rejected"?"✗ ปฏิเสธ":"○ รอ";
   });
 
-  const logoText   = template.logoText   || COMPANY_SHORT;
-  const companyName= template.companyName|| COMPANY;
-  const headerColor= template.headerColor|| "#D4AF37";
-  const showLogo   = template.showLogo   !== false;
-  const footerText = template.footerText || "เอกสารนี้ออกโดยระบบ E-Memo";
-  const showWatermark = template.showWatermark !== false;
+  try {
+    // Decode base64 docx → ArrayBuffer
+    const bin  = atob(template.fileBase64);
+    const buf  = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
 
-  const html = `
-  <html><head><meta charset="utf-8">
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:'Sarabun',sans-serif; font-size:13px; color:#111; background:#fff; padding:40px; }
-    .header { display:flex; align-items:center; justify-content:space-between; border-bottom:3px solid ${headerColor}; padding-bottom:14px; margin-bottom:20px; }
-    .logo-box { width:36px; height:36px; background:${headerColor}; border-radius:7px; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:700; color:#111; }
-    .company { font-size:11px; color:#6B7280; margin-top:2px; }
-    .doc-no { font-size:11px; color:#9CA3AF; text-align:right; }
-    .title { font-size:18px; font-weight:700; color:#111; margin-bottom:6px; }
-    .meta { display:flex; gap:16px; flex-wrap:wrap; font-size:11px; color:#6B7280; margin-bottom:20px; }
-    .badge { display:inline-block; padding:2px 10px; border-radius:4px; font-size:11px; font-weight:600; background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0; }
-    .section-title { font-size:10px; font-weight:700; color:#9CA3AF; text-transform:uppercase; letter-spacing:.6px; border-bottom:1px solid #F3F4F6; padding-bottom:5px; margin:18px 0 8px; }
-    .content { font-size:13px; line-height:1.85; white-space:pre-wrap; color:#374151; background:#FAFAFA; border:1px solid #F3F4F6; border-radius:6px; padding:14px; }
-    .approver-row { display:flex; align-items:center; gap:10; padding:7px 0; border-bottom:1px solid #F9FAFB; font-size:12px; }
-    .step-num { font-size:10px; color:#9CA3AF; min-width:30px; }
-    .sig-box { border:1px solid #E5E7EB; border-radius:6px; padding:10px 14px; margin-bottom:6px; background:#FAFAFA; }
-    .sig-name { font-size:12px; font-weight:600; color:#111; }
-    .sig-date { font-size:10px; color:#9CA3AF; margin-top:2px; }
-    .watermark { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-30deg); font-size:80px; font-weight:700; color:${headerColor}22; pointer-events:none; white-space:nowrap; z-index:0; }
-    .footer { border-top:1px solid #F3F4F6; margin-top:30px; padding-top:10px; font-size:10px; color:#9CA3AF; display:flex; justify-content:space-between; }
-  </style></head><body>
-  ${showWatermark ? `<div class="watermark">อนุมัติแล้ว</div>` : ""}
-  <div style="position:relative;z-index:1">
-    ${showLogo ? `
-    <div class="header">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div class="logo-box">E</div>
-        <div><div style="font-size:13px;font-weight:700;color:${headerColor}">${logoText}</div><div class="company">${companyName}</div></div>
-      </div>
-      <div class="doc-no"><div style="font-weight:600">E-MEMO</div><div>${memo.id}</div></div>
-    </div>` : ""}
-    <div class="title">${memo.title || "-"}</div>
-    <div class="meta">
-      <span>📁 ${memo.category}</span>
-      <span>👤 ${creator.name || "-"}</span>
-      <span>📅 ${fmtDate(memo.createdAt)}</span>
-      <span class="badge">✅ อนุมัติแล้ว</span>
-    </div>
-    <div class="section-title">เนื้อหา</div>
-    <div class="content">${(memo.content || "").replace(/</g,"&lt;")}</div>
-    <div class="section-title">ลายเซ็นผู้อนุมัติ</div>
-    ${(memo.workflow || []).map((s, i) => {
-      const u = users.find(x => x.id === s.approver) || {};
-      const done = s.status === "approved";
-      return `<div class="sig-box" style="${done ? "" : "opacity:.4"}">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div><div class="sig-name">ขั้น ${i + 1}: ${u.name || "-"}</div><div style="font-size:10px;color:#9CA3AF">${u.dept || ""} ${u.email ? "· " + u.email : ""}</div></div>
-          <div style="text-align:right"><div style="font-size:11px;font-weight:600;color:${done ? "#065F46" : "#9CA3AF"}">${done ? "✓ อนุมัติ" : "○ รอ"}</div>${s.actionAt ? `<div class="sig-date">${fmtDate(s.actionAt)}</div>` : ""}</div>
-        </div>
-        ${s.comment ? `<div style="font-size:11px;color:#6B7280;margin-top:6px;border-top:1px solid #F3F4F6;padding-top:5px">${s.comment}</div>` : ""}
-      </div>`;
-    }).join("")}
-    <div class="footer">
-      <span>${footerText}</span>
-      <span>พิมพ์เมื่อ: ${new Date().toLocaleDateString("th-TH", { day: "2-digit", month: "long", year: "numeric" })}</span>
-    </div>
-  </div>
-  </body></html>`;
+    // Use JSZip (loaded via CDN) to read/write the docx XML
+    const JSZip = (await import("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js")).default || window.JSZip;
+    const zip   = await JSZip.loadAsync(buf.buffer);
+    const xmlFiles = ["word/document.xml","word/header1.xml","word/header2.xml",
+                      "word/footer1.xml","word/footer2.xml"].filter(p=>zip.files[p]);
 
-  const w = window.open("", "_blank", "width=800,height=900");
-  if (!w) return;
-  w.document.write(html);
-  w.document.close();
-  w.onload = () => { w.focus(); w.print(); };
+    for (const xmlPath of xmlFiles) {
+      let xml = await zip.files[xmlPath].async("string");
+      // Strip XML tags within placeholder spans (Word splits runs inside {{}})
+      // Merge split placeholder text: handle {{...}} split across <w:r> elements
+      xml = xml.replace(/\{\{[^}]*\}\}/g, ph => replacements[ph] ?? ph);
+      // Also handle Word's split-run placeholders by collapsing nearby text nodes
+      // Strategy: replace split {{...}} that Word may have tokenized
+      Object.entries(replacements).forEach(([ph, val]) => {
+        // Escape for XML
+        const safe = val.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        // Match placeholder potentially split across runs (simplified: same paragraph)
+        const escapedPh = ph.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+        xml = xml.replace(new RegExp(escapedPh,"g"), safe);
+      });
+      zip.file(xmlPath, xml);
+    }
+
+    const outBuf = await zip.generateAsync({ type:"blob", mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+    const url  = URL.createObjectURL(outBuf);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `${memo.docNo||memo.id}_${(memo.title||"memo").slice(0,30)}.docx`;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 3000);
+  } catch(err) {
+    alert("Export ไม่สำเร็จ: " + err.message);
+  }
 }
 
-// ── PDF Template Editor (superadmin only) ────────────────────────────────────
-function PdfTemplateEditor({ template, onSave, onClose }) {
-  const [t, setT] = useState({
-    logoText:    template.logoText    || COMPANY_SHORT,
-    companyName: template.companyName || COMPANY,
-    headerColor: template.headerColor || "#D4AF37",
-    footerText:  template.footerText  || "เอกสารนี้ออกโดยระบบ E-Memo",
-    showLogo:    template.showLogo    !== false,
-    showWatermark: template.showWatermark !== false,
-  });
-  const up = (k, v) => setT(p => ({ ...p, [k]: v }));
-  const COLOR_PRESETS = ["#D4AF37","#1E40AF","#065F46","#7C3AED","#DC2626","#111111"];
-  return (
-    <div style={{ position:"fixed", inset:0, zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", background:"rgba(0,0,0,.6)" }}>
-      <div style={{ background:"#fff", borderRadius:14, padding:28, width:500, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}>
-        <div style={{ fontSize:15, fontWeight:700, color:"#111", marginBottom:4 }}>🎨 ตั้งค่า Template PDF</div>
-        <div style={{ fontSize:12, color:"#9CA3AF", marginBottom:20 }}>กำหนดรูปแบบเอกสาร PDF ที่จะ Export จาก Memo ที่อนุมัติแล้ว</div>
+// ── PDF Template Manager (upload .docx, multi-template) ─────────────────────
+function DocxTemplateManager({ templates, onSave, onClose }) {
+  // templates: object { id: { id, name, dept, isDefault, fileBase64, fileName, updatedAt } }
+  const [list,    setList]    = useState(Object.values(templates||{}));
+  const [editing, setEditing] = useState(null);  // template being edited
+  const [saving,  setSaving]  = useState(false);
+  const fileRef = useRef();
 
-        <Field label="ชื่อย่อบริษัท (Header)">
-          <input value={t.logoText} onChange={e=>up("logoText",e.target.value)} style={IS}/>
-        </Field>
-        <Field label="ชื่อบริษัทเต็ม">
-          <input value={t.companyName} onChange={e=>up("companyName",e.target.value)} style={IS}/>
-        </Field>
-        <Field label="ข้อความ Footer">
-          <input value={t.footerText} onChange={e=>up("footerText",e.target.value)} style={IS}/>
-        </Field>
-        <Field label="สี Header">
-          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <input type="color" value={t.headerColor} onChange={e=>up("headerColor",e.target.value)}
-              style={{ width:36, height:36, padding:0, border:"1px solid #E5E7EB", borderRadius:6, cursor:"pointer" }}/>
-            <div style={{ display:"flex", gap:4 }}>
-              {COLOR_PRESETS.map(c => (
-                <div key={c} onClick={()=>up("headerColor",c)}
-                  style={{ width:22, height:22, borderRadius:4, background:c, cursor:"pointer", border:t.headerColor===c?"2px solid #111":"2px solid transparent" }}/>
+  const newTpl = () => setEditing({
+    id: "tpl"+Date.now(), name:"", dept:"ทั่วไป", isDefault:false,
+    fileBase64:null, fileName:null, updatedAt: new Date().toISOString()
+  });
+
+  const handleFile = (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    if (!f.name.endsWith(".docx")) { alert("กรุณาอัพโหลดไฟล์ .docx เท่านั้น"); return; }
+    const r = new FileReader();
+    r.onload = ev => {
+      const b64 = btoa(new Uint8Array(ev.target.result).reduce((s,b)=>s+String.fromCharCode(b),""));
+      setEditing(p=>({...p, fileBase64:b64, fileName:f.name, updatedAt:new Date().toISOString()}));
+    };
+    r.readAsArrayBuffer(f);
+    e.target.value="";
+  };
+
+  const saveTpl = () => {
+    if (!editing.name.trim()) { alert("กรุณากรอกชื่อ Template"); return; }
+    setList(prev => {
+      const idx = prev.findIndex(t=>t.id===editing.id);
+      if (idx>=0) { const n=[...prev]; n[idx]=editing; return n; }
+      return [...prev, editing];
+    });
+    setEditing(null);
+  };
+
+  const delTpl = (id) => setList(prev=>prev.filter(t=>t.id!==id));
+
+  const setDefault = (id) => setList(prev=>prev.map(t=>({...t,isDefault:t.id===id})));
+
+  const saveAll = async () => {
+    setSaving(true);
+    const obj = Object.fromEntries(list.map(t=>[t.id,t]));
+    await onSave(obj);
+    setSaving(false);
+  };
+
+  const PLACEHOLDER_GUIDE = [
+    ["{{docNo}}","เลขที่เอกสาร"],["{{title}}","ชื่อเรื่อง"],["{{content}}","เนื้อหา"],
+    ["{{category}}","หมวดหมู่"],["{{createdBy}}","ผู้สร้าง"],["{{dept}}","แผนก"],
+    ["{{createdAt}}","วันที่สร้าง"],["{{approvedDate}}","วันที่อนุมัติ"],
+    ["{{approver1}}","ผู้อนุมัติขั้น 1"],["{{approver1Date}}","วันที่อนุมัติขั้น 1"],
+    ["{{approver2}}","ผู้อนุมัติขั้น 2"],["{{company}}","ชื่อบริษัท"],
+  ];
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.65)"}}>
+      <div style={{background:"#fff",borderRadius:14,width:660,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 80px rgba(0,0,0,.3)",display:"flex",flexDirection:"column"}}>
+        {/* Header */}
+        <div style={{padding:"20px 24px 0",borderBottom:"1px solid #F3F4F6",paddingBottom:16,flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div>
+              <div style={{fontSize:15,fontWeight:700,color:"#111"}}>📄 จัดการ Template เอกสาร</div>
+              <div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>อัพโหลด .docx แล้วใส่ Placeholder เพื่อดึงข้อมูล Memo อัตโนมัติ</div>
+            </div>
+            <button onClick={onClose} style={{...BTN_X,fontSize:18,padding:"4px 8px"}}>✕</button>
+          </div>
+        </div>
+
+        <div style={{padding:"16px 24px",flex:1,overflowY:"auto"}}>
+          {/* Placeholder guide */}
+          <div style={{background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:8,padding:"10px 14px",marginBottom:16}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#0369A1",marginBottom:8}}>📋 Placeholder ที่ใช้ได้ใน .docx</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"3px 12px"}}>
+              {PLACEHOLDER_GUIDE.map(([ph,desc])=>(
+                <div key={ph} style={{display:"flex",gap:4,alignItems:"baseline"}}>
+                  <code style={{fontSize:10,background:"#E0F2FE",color:"#0369A1",padding:"1px 4px",borderRadius:3,whiteSpace:"nowrap"}}>{ph}</code>
+                  <span style={{fontSize:10,color:"#6B7280"}}>{desc}</span>
+                </div>
               ))}
             </div>
           </div>
-        </Field>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 12px", background:"#F9FAFB", borderRadius:6, border:"1px solid #F3F4F6" }}>
-            <span style={{ fontSize:12, color:"#374151" }}>แสดง Header/Logo</span>
-            <Toggle value={t.showLogo} onChange={v=>up("showLogo",v)}/>
-          </div>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 12px", background:"#F9FAFB", borderRadius:6, border:"1px solid #F3F4F6" }}>
-            <span style={{ fontSize:12, color:"#374151" }}>Watermark "อนุมัติแล้ว"</span>
-            <Toggle value={t.showWatermark} onChange={v=>up("showWatermark",v)}/>
-          </div>
+
+          {/* Template list */}
+          {list.length===0 && (
+            <div style={{textAlign:"center",padding:"32px 0",color:"#9CA3AF",fontSize:13,border:"2px dashed #E5E7EB",borderRadius:10}}>
+              ยังไม่มี Template — กดเพิ่มเพื่อสร้าง
+            </div>
+          )}
+          {list.map(t=>(
+            <div key={t.id} style={{border:`1px solid ${t.isDefault?"#A7F3D0":"#F3F4F6"}`,borderRadius:10,padding:"12px 14px",marginBottom:8,background:t.isDefault?"#F0FDF4":"#fff",display:"flex",alignItems:"center",gap:12}}>
+              <div style={{fontSize:22}}>📄</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <span style={{fontSize:13,fontWeight:600,color:"#111"}}>{t.name}</span>
+                  {t.isDefault&&<span style={{fontSize:10,background:"#ECFDF5",color:"#065F46",border:"1px solid #A7F3D0",borderRadius:4,padding:"1px 6px",fontWeight:600}}>Default</span>}
+                  <span style={{fontSize:10,background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:4,padding:"1px 6px"}}>{t.dept||"ทุกแผนก"}</span>
+                </div>
+                <div style={{fontSize:11,color:"#9CA3AF",marginTop:2}}>
+                  {t.fileName ? `📎 ${t.fileName}` : "⚠ ยังไม่มีไฟล์"}
+                  {t.updatedAt && ` · อัปเดต ${fmtShort(t.updatedAt)}`}
+                </div>
+              </div>
+              <div style={{display:"flex",gap:4,flexShrink:0}}>
+                {!t.isDefault&&<button onClick={()=>setDefault(t.id)} style={{...BTN_GRAY,fontSize:10}}>ตั้งเป็น Default</button>}
+                <button onClick={()=>setEditing({...t})} style={{...BTN_GRAY,fontSize:11}}>แก้ไข</button>
+                <button onClick={()=>delTpl(t.id)} style={{...BTN_X,color:"#DC2626",border:"1px solid #FECACA",borderRadius:5,background:"#FFF1F1",padding:"3px 7px",fontSize:11}}>ลบ</button>
+              </div>
+            </div>
+          ))}
+
+          <button onClick={newTpl} style={{width:"100%",padding:"10px",background:"#F9FAFB",color:"#374151",border:"2px dashed #E5E7EB",borderRadius:8,fontSize:12,cursor:"pointer",marginTop:4}}>
+            + เพิ่ม Template ใหม่
+          </button>
         </div>
-        {/* Preview strip */}
-        <div style={{ border:`2px solid ${t.headerColor}`, borderRadius:8, padding:"12px 16px", marginBottom:18, background:"#FAFAFA" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
-            <div style={{ width:24, height:24, background:t.headerColor, borderRadius:5, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700, color:"#111" }}>E</div>
-            <div>
-              <div style={{ fontSize:11, fontWeight:700, color:t.headerColor }}>{t.logoText}</div>
-              <div style={{ fontSize:9, color:"#9CA3AF" }}>{t.companyName}</div>
+
+        <div style={{padding:"14px 24px",borderTop:"1px solid #F3F4F6",display:"flex",gap:8,flexShrink:0}}>
+          <button onClick={saveAll} disabled={saving} style={{...BTN_GOLD,flex:1,padding:"10px",opacity:saving?.6:1}}>
+            {saving?"กำลังบันทึก...":"💾 บันทึกทั้งหมด"}
+          </button>
+          <button onClick={onClose} style={{flex:1,padding:"10px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>ปิด</button>
+        </div>
+      </div>
+
+      {/* Edit panel overlay */}
+      {editing && (
+        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.5)"}}>
+          <div style={{background:"#fff",borderRadius:12,padding:24,width:440,boxShadow:"0 20px 60px rgba(0,0,0,.25)"}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#111",marginBottom:16}}>{list.find(t=>t.id===editing.id)?"แก้ไข Template":"สร้าง Template ใหม่"}</div>
+            <Field label="ชื่อ Template *">
+              <input value={editing.name} onChange={e=>setEditing(p=>({...p,name:e.target.value}))} placeholder="เช่น Memo ทั่วไป, ใบสั่งซื้อ IT..." style={IS}/>
+            </Field>
+            <Field label="แผนกที่ใช้ (เว้นว่าง = ใช้ได้ทุกแผนก)">
+              <input value={editing.dept||""} onChange={e=>setEditing(p=>({...p,dept:e.target.value}))} placeholder="IT, HR, งบประมาณ ..." style={IS}/>
+            </Field>
+            <Field label="ไฟล์ .docx Template">
+              <input ref={fileRef} type="file" accept=".docx" style={{display:"none"}} onChange={handleFile}/>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <button onClick={()=>fileRef.current?.click()} style={{...BTN_GRAY,padding:"7px 14px",fontSize:12}}>📁 เลือกไฟล์</button>
+                {editing.fileName
+                  ? <span style={{fontSize:12,color:"#065F46",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>✓ {editing.fileName}</span>
+                  : <span style={{fontSize:12,color:"#9CA3AF"}}>ยังไม่มีไฟล์</span>}
+              </div>
+            </Field>
+            <div style={{background:"#FFFBEB",border:"1px solid #FCD34D",borderRadius:6,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#B45309"}}>
+              💡 ใส่ Placeholder เช่น <code style={{background:"#FEF9C3",padding:"1px 4px",borderRadius:3}}>{"{{title}}"}</code> ใน Word แล้วระบบจะแทนค่าให้อัตโนมัติตอน Export
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={saveTpl} style={{...BTN_GOLD,flex:1,padding:"10px"}}>บันทึก</button>
+              <button onClick={()=>setEditing(null)} style={{flex:1,padding:"10px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button>
             </div>
           </div>
-          <div style={{ fontSize:11, color:"#374151", borderTop:`1px solid ${t.headerColor}44`, paddingTop:6 }}>
-            <strong>ชื่อ Memo</strong> · หมวดหมู่ · ผู้สร้าง
-          </div>
-          <div style={{ fontSize:9, color:"#9CA3AF", marginTop:4 }}>{t.footerText}</div>
         </div>
-        <div style={{ display:"flex", gap:8 }}>
-          <button onClick={()=>onSave(t)} style={{ ...BTN_GOLD, flex:1, padding:"10px" }}>💾 บันทึก Template</button>
-          <button onClick={onClose} style={{ flex:1, padding:"10px", background:"#F9FAFB", color:"#6B7280", border:"1px solid #E5E7EB", borderRadius:6, fontSize:12, cursor:"pointer" }}>ยกเลิก</button>
-        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Export Template Picker (shown when memo has multiple eligible templates) ──
+function TemplatePicker({ templates, memo, users, onClose }) {
+  const creator = users.find(u=>u.id===memo.createdBy)||{};
+  const eligible = templates.filter(t=>!t.dept||t.dept===creator.dept||creator.dept?.includes(t.dept));
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.5)"}}>
+      <div style={{background:"#fff",borderRadius:12,padding:24,width:400,boxShadow:"0 20px 60px rgba(0,0,0,.2)"}}>
+        <div style={{fontSize:14,fontWeight:700,color:"#111",marginBottom:4}}>📄 เลือก Template Export</div>
+        <div style={{fontSize:12,color:"#9CA3AF",marginBottom:16}}>เลขที่เอกสาร: <strong style={{color:"#111"}}>{memo.docNo||memo.id}</strong></div>
+        {eligible.length===0
+          ? <div style={{color:"#9CA3AF",fontSize:13,textAlign:"center",padding:"20px 0"}}>ไม่มี Template สำหรับแผนก {creator.dept||"นี้"}</div>
+          : eligible.map(t=>(
+            <div key={t.id} onClick={()=>{exportMemoDocx(memo,users,t);onClose();}}
+              style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",border:"1px solid #F3F4F6",borderRadius:8,marginBottom:6,cursor:"pointer",background:"#F9FAFB"}}
+              onMouseEnter={e=>e.currentTarget.style.background="#F0F9FF"}
+              onMouseLeave={e=>e.currentTarget.style.background="#F9FAFB"}>
+              <span style={{fontSize:20}}>📄</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:500,color:"#111"}}>{t.name}</div>
+                <div style={{fontSize:11,color:"#9CA3AF"}}>{t.dept||"ทุกแผนก"} {t.isDefault?"· Default":""}</div>
+              </div>
+              <span style={{fontSize:11,color:"#9CA3AF"}}>⬇ Export</span>
+            </div>
+          ))}
+        <button onClick={onClose} style={{width:"100%",marginTop:8,padding:"9px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button>
       </div>
     </div>
   );
@@ -652,8 +773,9 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
   );
 }
 
-function DetailView({ memo, users, curUser, notifyConfig, pdfTemplate, onBack, onRecall, onEdit, onAddFile, onRemoveFile, setModal }) {
+function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, onRecall, onEdit, onAddFile, onRemoveFile, setModal }) {
   const fileRef    = useRef();
+  const [showPicker, setShowPicker] = useState(false);
   const isCreator  = memo.createdBy === curUser.id;
   const canApprove = memo.status==="pending" && memo.workflow?.[memo.currentStep]?.approver===curUser.id && can(curUser.role,"approve");
   const ALABEL     = {created:"สร้าง",submitted:"ส่งอนุมัติ",approved:"อนุมัติ",rejected:"ปฏิเสธ",recalled:"เรียกคืน",edited:"แก้ไข",resubmitted:"ส่งกลับ"};
@@ -666,11 +788,16 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplate, onBack, o
     ...(notifyConfig.powerauto?.enabled&&notify.postToPowerAuto?["🟣 SharePoint"]:[]),
     ...(notifyConfig.line?.enabled&&notify.postToLine?["🟢 LINE Group"]:[]),
   ];
+  const tplList = Object.values(pdfTemplates||{}).filter(t=>t.fileBase64);
   return (
     <div style={{padding:24}}>
+      {showPicker && <TemplatePicker templates={tplList} memo={memo} users={users} onClose={()=>setShowPicker(false)}/>}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
         <button onClick={onBack} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,color:"#9CA3AF",padding:0,lineHeight:1}}>←</button>
-        <div style={{flex:1,fontSize:16,fontWeight:600,color:"#111",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{memo.title}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:16,fontWeight:600,color:"#111",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{memo.title}</div>
+          {memo.docNo && <div style={{fontSize:11,color:"#9CA3AF",marginTop:1}}>เลขที่: <span style={{fontWeight:600,color:"#374151",fontFamily:"monospace"}}>{memo.docNo}</span></div>}
+        </div>
         <StatusBadge status={memo.status}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 290px",gap:16,alignItems:"start"}}>
@@ -749,8 +876,11 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplate, onBack, o
             </Section>
           )}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {memo.status==="approved" && (
-              <button onClick={()=>exportMemoPdf(memo,users,pdfTemplate||{})} style={{padding:11,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:13,fontWeight:500,cursor:"pointer"}}>📄 Export PDF</button>
+            {memo.status==="approved" && tplList.length>0 && (
+              <button onClick={()=>{ if(tplList.length===1){exportMemoDocx(memo,users,tplList[0]);}else{setShowPicker(true);}}} style={{padding:11,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:13,fontWeight:500,cursor:"pointer"}}>📄 Export .docx</button>
+            )}
+            {memo.status==="approved" && tplList.length===0 && (
+              <div style={{padding:"9px 12px",background:"#F9FAFB",border:"1px dashed #E5E7EB",borderRadius:6,fontSize:11,color:"#9CA3AF",textAlign:"center"}}>ยังไม่มี Template — ตั้งค่าใน ⚙ ตั้งค่าระบบ</div>
             )}
             {canApprove && (
               <>
@@ -968,10 +1098,10 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
       <div style={{fontSize:13,color:"#6B7280",marginBottom:20}}>เปิดใช้งานช่องทางที่ต้องการ — ส่งอัตโนมัติเมื่อ Memo อนุมัติครบทุกขั้น</div>
       <div style={{background:"#EEEDFE",border:"1px solid #AFA9EC",borderRadius:10,padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div>
-          <div style={{fontSize:13,fontWeight:600,color:"#3C3489"}}>🎨 Template PDF</div>
-          <div style={{fontSize:11,color:"#6B7280",marginTop:1}}>กำหนดรูปแบบ PDF ที่ Export จาก Memo ที่อนุมัติแล้ว</div>
+          <div style={{fontSize:13,fontWeight:600,color:"#3C3489"}}>📄 Template เอกสาร (.docx)</div>
+          <div style={{fontSize:11,color:"#6B7280",marginTop:1}}>อัพโหลด .docx ใส่ Placeholder — ระบบแทนค่าจาก Memo อัตโนมัติ รองรับหลาย Template ต่อแผนก</div>
         </div>
-        <button onClick={onOpenPdfTemplate} style={{padding:"7px 16px",background:"#3C3489",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>ตั้งค่า Template</button>
+        <button onClick={onOpenPdfTemplate} style={{padding:"7px 16px",background:"#3C3489",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>จัดการ Template</button>
       </div>
       {channels.map(ch=>(
         <div key={ch.id} style={{background:"#fff",border:`1px solid ${cfg[ch.id]?.enabled?"#E5E7EB":"#F3F4F6"}`,borderRadius:10,marginBottom:12,overflow:"hidden"}}>
@@ -1011,7 +1141,7 @@ export default function EMemo() {
   const [modal,     setModal]     = useState(null);
   const [toast,     setToast]     = useState(null);
   const [syncing,   setSyncing]   = useState(false);
-  const [showPdfEditor, setShowPdfEditor] = useState(false);
+  const [showTplManager, setShowTplManager] = useState(false);
 
   // ── Auth listener (from uploaded file) ───────────────────────────────────
   useEffect(() => {
@@ -1047,10 +1177,11 @@ export default function EMemo() {
   );
 
   // ── Derive state from Firebase object structure (from uploaded file) ──────
-  const users    = Object.values(data.users    || {});
-  const memoList = Object.values(data.memos    || {});
-  const notifyConfig = data.notifyConfig || { email:{}, teams:{}, powerauto:{}, line:{} };
-  const pdfTemplate  = data.pdfTemplate  || {};
+  const users       = Object.values(data.users    || {});
+  const memoList    = Object.values(data.memos    || {});
+  const notifyConfig= data.notifyConfig || { email:{}, teams:{}, powerauto:{}, line:{} };
+  const pdfTemplates= data.pdfTemplates || {};
+  const docCounters = data.docCounters  || {};
 
   // curUser: match Firebase auth email to user in DB (from uploaded file)
   const curUser = users.find(u => u.email === authUser.email) || {
@@ -1109,6 +1240,11 @@ export default function EMemo() {
     const next = i+1; const done = next >= (memo.workflow||[]).length;
     const patch = { workflow:nwf, currentStep:done?i:next, status:done?"approved":"pending",
       history:[...(memo.history||[]),{action:"approved",by:curUser.id,at:now,comment}] };
+    // Assign doc number on final approval
+    if (done && !memo.docNo) {
+      const docNo = await assignDocNo(memo, users, docCounters);
+      patch.docNo = docNo;
+    }
     await patchMemo(memo.id, patch);
     setModal(null);
     setSelId(memo.id);
@@ -1152,11 +1288,11 @@ export default function EMemo() {
       <Toast t={toast}/>
       {syncing && <div style={{position:"fixed",bottom:16,left:216,background:"#FFFBEB",color:"#B45309",border:"1px solid #FCD34D",borderRadius:6,padding:"4px 10px",fontSize:11,zIndex:100}}>⟳ กำลังบันทึก...</div>}
       {modal && <ActionModal modal={modal} onClose={()=>setModal(null)} onApprove={c=>approveMemo(modal.memo,c)} onReject={c=>rejectMemo(modal.memo,c)}/>}
-      {showPdfEditor && can(curUser.role,"settings") && (
-        <PdfTemplateEditor
-          template={pdfTemplate}
-          onSave={async(t)=>{ await writePdfTemplate(t); showToast("บันทึก Template PDF แล้ว"); setShowPdfEditor(false); }}
-          onClose={()=>setShowPdfEditor(false)}
+      {showTplManager && can(curUser.role,"settings") && (
+        <DocxTemplateManager
+          templates={pdfTemplates}
+          onSave={async(tpls)=>{ await writePdfTemplates(tpls); showToast("บันทึก Template เรียบร้อย"); setShowTplManager(false); }}
+          onClose={()=>setShowTplManager(false)}
         />
       )}
 
@@ -1215,9 +1351,9 @@ export default function EMemo() {
         {view==="all"       && can(curUser.role,"viewAll") && <MemoListView memoList={memoList} users={users} title="Memo ทั้งหมด" curUser={curUser} onOpen={openMemo}/>}
         {view==="search"    && <SearchView memoList={curUser.role==="user"?memoList.filter(m=>m.createdBy===curUser.id||m.workflow?.find(s=>s.approver===curUser.id)):memoList} users={users} curUser={curUser} onOpen={openMemo}/>}
         {view==="users"     && can(curUser.role,"manageUsers") && <UsersMgmt users={users} curUser={curUser} showToast={showToast}/>}
-        {view==="settings"  && can(curUser.role,"settings") && <SettingsView notifyConfig={notifyConfig} showToast={showToast} onOpenPdfTemplate={()=>setShowPdfEditor(true)}/>}
+        {view==="settings"  && can(curUser.role,"settings") && <SettingsView notifyConfig={notifyConfig} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)}/>}
         {view==="create"    && editMemo && <CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"}/>}
-        {view==="detail"    && selMemo  && <DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplate={pdfTemplate} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal}/>}
+        {view==="detail"    && selMemo  && <DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplates={pdfTemplates} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal}/>}
       </div>
     </div>
   );
