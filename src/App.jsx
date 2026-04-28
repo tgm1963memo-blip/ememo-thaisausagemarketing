@@ -1,9 +1,31 @@
+import { useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "./firebase";
 import Login from "./Login";
-import { useState, useEffect, useRef } from "react";
-import { ref, onValue, set } from "firebase/database";
-import { db, DATA_PATH } from "./firebase.js";
+
+export default function EMemo() {
+  const [user, setUser] = useState(undefined); // undefined = ยังไม่รู้
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u || null);
+    });
+    return () => unsub();
+  }, []);
+
+  // ⛔ กันหน้าขาว
+  if (user === undefined) {
+    return <div style={{ padding: 20 }}>Loading...</div>;
+  }
+
+  // 🔐 ยังไม่ login
+  if (!user) {
+    return <Login />;
+  }
+
+  // ✅ login แล้ว → แสดง App เดิมของคุณ
+  return (
+    <div>
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const COMPANY      = "บริษัท ไทยซอสเซส มาร์เก็ตติ้ง จำกัด";
@@ -726,4 +748,15 @@ export default function EMemo() {
       {view==="detail"    && selMemo && <Detail memo={selMemo} users={users} currentUser={currentUser} notifyConfig={notifyConfig} onBack={() => setView("myMemos")} onRecall={() => recallMemo(selMemo)} onEdit={() => startEdit(selMemo)} onAddFile={(f) => addAtt(selMemo,f)} onRemoveFile={(id) => remAtt(selMemo,id)} setModal={setModal}/>}
     </div>
   </div>;
+}
+
+     <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <h2>E-Memo System</h2>
+        <button onClick={() => signOut(auth)}>Logout</button>
+      </div>
+
+      {/* 🔽 ตรงนี้คือ UI เดิมของคุณ */}
+      <div>ระบบ e-memo ของคุณ</div>
+    </div>
+  );
 }
