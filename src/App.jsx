@@ -9,11 +9,11 @@ const DATA_PATH = "ememo_data";
 const CATEGORIES = ["ทั่วไป","งบประมาณ","จัดซื้อจัดจ้าง","รายงาน","นโยบาย","HR","IT","อื่นๆ"];
 
 const STATUS_LABEL = {
-  draft:"ร่าง",
-  pending:"รออนุมัติ",
-  approved:"อนุมัติแล้ว",
-  rejected:"ปฏิเสธ",
-  recalled:"เรียกคืนแล้ว"
+  draft: "ร่าง",
+  pending: "รออนุมัติ",
+  approved: "อนุมัติแล้ว",
+  rejected: "ปฏิเสธ",
+  recalled: "เรียกคืนแล้ว"
 };
 
 const STATUS_COLOR = {
