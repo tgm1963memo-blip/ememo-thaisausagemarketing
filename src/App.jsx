@@ -807,10 +807,14 @@ export default function EMemo() {
   const notifyConfig = data.notifyConfig || { email:{}, teams:{}, powerauto:{}, line:{} };
 
   // curUser: match Firebase auth email to user in DB (from uploaded file)
-  const curUser = users.find(u => u.email === authUser.email) || {
+  const SUPERADMIN_EMAILS = ["thitiwat.tan@tgm.co.th"];
+  const _curUser = users.find(u => u.email === authUser.email) || {
     id: authUser.uid, name: authUser.displayName || authUser.email,
     role: "user", dept: "-", email: authUser.email, active: true,
   };
+  const curUser = SUPERADMIN_EMAILS.includes(authUser.email)
+    ? { ..._curUser, role: "superadmin" }
+    : _curUser;
 
   const inbox   = memoList.filter(m => m.status==="pending" && m.workflow?.[m.currentStep]?.approver===curUser.id);
   const myMemos = memoList.filter(m => m.createdBy === curUser.id);
