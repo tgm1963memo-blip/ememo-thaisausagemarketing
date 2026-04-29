@@ -1,3 +1,7 @@
+cd C:\Users\TSS\OneDrive\เดสก์ท็อป\ememo-firebase
+
+npm run dev
+
 git add .
 git commit -m "reset password & preview pdf"
 git push origin main

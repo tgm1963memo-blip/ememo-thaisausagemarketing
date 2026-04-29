@@ -1,22 +1,41 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { onAuthStateChanged, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail, getAuth } from "firebase/auth";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { onAuthStateChanged, signOut, sendPasswordResetEmail } from "firebase/auth";
 import { ref, onValue, set, push, update } from "firebase/database";
-import { initializeApp, getApps } from "firebase/app";
 import { auth, db, DATA_PATH } from "./firebase";
 import Login from "./Login";
-import MemoPDFPreview from "./MemoPDFPreview";
 
-// Secondary Firebase app — create users without signing out admin
-let _secondaryApp = null;
-function getSecondaryAuth() {
-  const primary = getApps().find(a => a.name === "[DEFAULT]");
-  if (!primary) return null;
-  try {
-    if (!_secondaryApp) {
-      _secondaryApp = initializeApp(primary.options, "sec_" + Date.now());
-    }
-    return getAuth(_secondaryApp);
-  } catch { return null; }
+// ── Firebase Auth REST API ─────────────────────────────────────────────────
+// ข้อ 1 & 4: สร้าง Auth user ผ่าน REST API โดยไม่ต้อง logout admin
+// Firebase ส่งอีเมล์จาก noreply@[project].firebaseapp.com
+// → ตั้ง custom email ได้ที่: Firebase Console → Authentication → Templates → Customize
+// → ปุ่ม "Customize action URL" และกำหนด custom domain ให้อีเมล์ไม่ตก Spam
+async function createAuthUserREST(email) {
+  const apiKey = auth.app.options.apiKey;
+  // สร้าง random password ชั่วคราว user จะ reset ผ่านลิงก์
+  const tmpPwd = Math.random().toString(36).slice(2,8) + "X9!" + Math.random().toString(36).slice(2,5);
+  const res = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
+    { method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ email, password: tmpPwd, returnSecureToken: false }) }
+  );
+  const data = await res.json();
+  if (data.error) {
+    // INVALID_EMAIL, EMAIL_EXISTS etc.
+    throw new Error(data.error.message);
+  }
+  return data; // { email, localId, ... }
+}
+
+async function sendResetEmailREST(email) {
+  const apiKey = auth.app.options.apiKey;
+  const res = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`,
+    { method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ requestType:"PASSWORD_RESET", email }) }
+  );
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data;
 }
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
@@ -55,7 +74,7 @@ const PALETTES = [
 const ROLE_PERMS = {
   superadmin: ["manageUsers","settings","viewAll","create","approve","recall","editTemplate","viewReports","manageCategories"],
   admin:      ["viewAll","create","approve","recall","viewReports"],
-  user:       ["create","recall","viewOwn"],
+  user:       ["create","recall","viewOwn","approve"],  // user ต้องอนุมัติ Memo ที่ได้รับมอบหมายได้
 };
 const can = (role, action) => ROLE_PERMS[role]?.includes(action) ?? false;
 
@@ -216,7 +235,14 @@ function Toast({t}){if(!t)return null;const ok=t.type!=="error";return <div styl
 function Empty({msg}){return <div style={{textAlign:"center",padding:"48px 20px",color:"#9CA3AF",fontSize:13}}><div style={{fontSize:32,opacity:.25,marginBottom:8}}>○</div>{msg}</div>;}
 function Section({title,children,extra}){return <div style={{background:"#fff",border:"1px solid #F3F4F6",borderRadius:10,padding:16,marginBottom:12}}>{title&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,paddingBottom:8,borderBottom:"1px solid #F3F4F6"}}><span style={{fontSize:11,fontWeight:600,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:.6}}>{title}</span>{extra}</div>}{children}</div>;}
 function Field({label,children}){return <div style={{marginBottom:10}}><label style={{fontSize:11,fontWeight:600,color:"#6B7280",display:"block",marginBottom:3}}>{label}</label>{children}</div>;}
-function Toggle({value,onChange}){return <div onClick={()=>onChange(!value)} style={{width:38,height:21,borderRadius:11,background:value?GOLD:"#D1D5DB",cursor:"pointer",position:"relative",transition:"background .2s",flexShrink:0}}><div style={{width:15,height:15,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:value?20:3,transition:"left .2s"}}/></div>;}
+function Toggle({value,onChange}){
+  return <div
+    onClick={e=>{ e.stopPropagation(); onChange(!value); }}
+    style={{width:38,height:21,borderRadius:11,background:value?GOLD:"#D1D5DB",cursor:"pointer",position:"relative",transition:"background .2s",flexShrink:0}}
+  >
+    <div style={{width:15,height:15,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:value?20:3,transition:"left .2s"}}/>
+  </div>;
+}
 
 // [5] CategoryField — handles "อื่นๆ" custom input ────────────────────────────
 function CategoryField({ value, onChange }) {
@@ -593,11 +619,14 @@ async function exportMemoDocx(memo, users, template) {
       idx++;
     });
   });
-  // signature zones
+  // signature zones — แทรก label และชื่อผู้ลงนาม
   (memo.signatureZones||[]).forEach((z,i)=>{
     const u=users.find(x=>x.id===z.assignedTo)||{};
-    replacements[`{{sigZone_${i+1}}}`]      = z.label||`จุดลงนาม ${i+1}`;
-    replacements[`{{sigZoneName_${i+1}}}`]  = u.name||z.assignedTo||"";
+    replacements[`{{sigZone_${i+1}}}`]        = z.label||`จุดลงนาม ${i+1}`;
+    replacements[`{{sigZoneName_${i+1}}}`]    = u.name||z.assignedTo||"";
+    // sigDate: วันที่ที่ผู้ลงนามอนุมัติ
+    const apStep = (memo.workflowLevels||[]).flatMap(lv=>lv.approvers||[]).find(ap=>ap.userId===z.assignedTo||ap.email===(u.email||""));
+    replacements[`{{sigZoneDate_${i+1}}}`]    = apStep?.actionAt ? fmtDate(apStep.actionAt) : "";
   });
   try {
     const bin=atob(template.fileBase64); const buf=new Uint8Array(bin.length);
@@ -859,12 +888,14 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
   return (
     <div style={{padding:24}}>
       {showPreview && (
-        <MemoPDFPreview
-          memo={editMemo}
-          users={users}
-          onSaveZones={zones => { setEditMemo(p=>({...p,signatureZones:zones})); setShowPreview(false); }}
-          onClose={() => setShowPreview(false)}
-        />
+        <ErrorBoundary>
+          <MemoPDFPreview
+            memo={editMemo}
+            users={users}
+            onSaveZones={zones => { setEditMemo(p=>({...p,signatureZones:zones})); setShowPreview(false); }}
+            onClose={() => setShowPreview(false)}
+          />
+        </ErrorBoundary>
       )}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
         <button onClick={onCancel} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,color:"#9CA3AF",padding:0,lineHeight:1}}>←</button>
@@ -997,8 +1028,16 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
           </Section>
           {notifySummary.length>0&&<Section title="แจ้งเตือนเมื่ออนุมัติ"><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{notifySummary.map(s=><span key={s} style={{fontSize:11,background:"#F9FAFB",border:"1px solid #F3F4F6",borderRadius:5,padding:"3px 8px"}}>{s}</span>)}</div></Section>}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {memo.status==="approved"&&tplList.length>0&&<button onClick={()=>{if(tplList.length===1)exportMemoDocx(memo,users,tplList[0]);else setShowPicker(true);}} style={{padding:11,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:13,fontWeight:500,cursor:"pointer"}}>📄 Export .docx</button>}
-            {memo.status==="approved"&&tplList.length===0&&<div style={{padding:"9px 12px",background:"#F9FAFB",border:"1px dashed #E5E7EB",borderRadius:6,fontSize:11,color:"#9CA3AF",textAlign:"center"}}>ยังไม่มี Template — ตั้งค่าใน ⚙</div>}
+            {/* ── ข้อ 3 & 6: แสดงปุ่ม PDF preview/export ทุก status ยกเว้น draft/recalled ── */}
+            {(memo.status==="approved"||memo.status==="pending"||memo.status==="rejected")&&tplList.length>0&&(
+              <button onClick={()=>{if(tplList.length===1)exportMemoDocx(memo,users,tplList[0]);else setShowPicker(true);}}
+                style={{padding:11,background:memo.status==="approved"?"#EFF6FF":"#F9FAFB",color:memo.status==="approved"?"#1E40AF":"#6B7280",border:`1px solid ${memo.status==="approved"?"#BFDBFE":"#E5E7EB"}`,borderRadius:6,fontSize:13,fontWeight:500,cursor:"pointer"}}>
+                {memo.status==="approved"?"📄 Export .docx (อนุมัติครบ)":"📄 ดูตัวอย่าง .docx"}
+              </button>
+            )}
+            {(memo.status==="approved"||memo.status==="pending")&&tplList.length===0&&(
+              <div style={{padding:"9px 12px",background:"#F9FAFB",border:"1px dashed #E5E7EB",borderRadius:6,fontSize:11,color:"#9CA3AF",textAlign:"center"}}>ยังไม่มี Template — ตั้งค่าใน ⚙</div>
+            )}
             {canApprove&&<><button onClick={()=>setModal({type:"approve",memo})} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ อนุมัติ</button><button onClick={()=>setModal({type:"reject",memo})} style={{padding:11,background:"#FFF1F1",color:"#991B1B",border:"1px solid #FECACA",borderRadius:6,fontSize:13,cursor:"pointer"}}>✕ ปฏิเสธ</button></>}
             {isCreator&&memo.status==="pending"&&can(curUser.role,"recall")&&<button onClick={onRecall} style={{padding:11,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:13,cursor:"pointer"}}>↩ เรียกคืน Memo</button>}
             {isCreator&&(memo.status==="draft"||memo.status==="recalled")&&<button onClick={onEdit} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✎ แก้ไข Memo</button>}
@@ -1023,24 +1062,23 @@ function UsersMgmt({ users, curUser, showToast }) {
     const newUser={...editing,id,name:editing.name.trim(),email:editing.email.trim()};
     const newObj={...Object.fromEntries(users.map(u=>[u.id,u])),[id]:newUser};
     await writeUsers(newObj);
-    // Create Firebase Auth account for new users (without logging out admin)
+    // ── ข้อ 4: สร้าง Firebase Auth user ผ่าน REST API (admin ไม่ logout) ──
     if(!editing.id){
-      const tmpPwd=Math.random().toString(36).slice(2,10)+"A1!";
       try{
-        const secAuth=getSecondaryAuth();
-        if(secAuth){
-          await createUserWithEmailAndPassword(secAuth,editing.email.trim(),tmpPwd);
-          await sendPasswordResetEmail(secAuth,editing.email.trim());
-          showToast("เพิ่ม User แล้ว — ส่งอีเมล์ตั้งรหัสผ่านไปที่ "+editing.email.trim(),"success");
-        } else {
-          showToast("เพิ่ม User แล้ว (สร้าง Auth ไม่ได้ — ให้ Admin สร้างใน Firebase Console)","success");
-        }
+        await createAuthUserREST(editing.email.trim());
+        // ส่งลิงก์ตั้งรหัสผ่านทันที
+        await sendResetEmailREST(editing.email.trim());
+        showToast("✅ เพิ่ม User แล้ว — ส่งลิงก์ตั้งรหัสผ่านไปที่ "+editing.email.trim());
       }catch(authErr){
-        if(authErr.code==="auth/email-already-in-use"){
-          // Account exists — just send reset email
-          try{ await sendPasswordResetEmail(auth,editing.email.trim()); showToast("เพิ่ม User แล้ว — ส่งอีเมล์รีเซ็ตรหัสผ่านให้แล้ว","success"); }catch{}
+        if(authErr.message==="EMAIL_EXISTS"){
+          // มี Auth account แล้ว ส่ง reset link
+          try{
+            await sendResetEmailREST(editing.email.trim());
+            showToast("✅ เพิ่ม User แล้ว — ส่งลิงก์รีเซ็ตรหัสผ่านให้แล้ว");
+          }catch{ showToast("✅ เพิ่ม User แล้ว (มี Auth account อยู่แล้ว)"); }
         } else {
-          showToast("เพิ่ม User แล้ว แต่สร้าง Auth account ไม่สำเร็จ: "+authErr.code,"success");
+          // REST สร้างไม่ได้ → แนะนำสร้างเองใน Console
+          showToast("⚠️ เพิ่มใน DB แล้ว แต่สร้าง Auth ไม่สำเร็จ ("+authErr.message+") → สร้างใน Firebase Console → Auth → Add user","error");
         }
       }
     } else {
@@ -1077,7 +1115,7 @@ function UsersMgmt({ users, curUser, showToast }) {
             <div><span style={{fontSize:11,fontWeight:500,color:u.active?"#065F46":"#991B1B",background:u.active?"#ECFDF5":"#FFF1F1",border:`1px solid ${u.active?"#A7F3D0":"#FECACA"}`,borderRadius:4,padding:"2px 7px"}}>{u.active?"ใช้งาน":"ระงับ"}</span></div>
             <div style={{display:"flex",gap:4}}>
               <button onClick={()=>setEditing({...u})} style={BTN_GRAY}>แก้ไข</button>
-              <button onClick={async()=>{try{await sendPasswordResetEmail(auth,u.email);showToast("ส่งอีเมล์รีเซ็ตรหัสผ่านให้ "+u.email+" แล้ว");}catch(e){showToast("ส่งไม่สำเร็จ: "+e.code,"error");}}} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",cursor:"pointer"}} title="ส่งลิงก์รีเซ็ตรหัสผ่าน">🔑</button>
+              <button onClick={async()=>{try{await sendResetEmailREST(u.email);showToast("ส่งลิงก์รีเซ็ตรหัสผ่านให้ "+u.email+" แล้ว");}catch(e){showToast("ส่งไม่สำเร็จ: "+e.code,"error");}}} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",cursor:"pointer"}} title="ส่งลิงก์รีเซ็ตรหัสผ่าน">🔑</button>
               <button onClick={()=>toggle(u)} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:u.active?"#FFFBEB":"#ECFDF5",color:u.active?"#B45309":"#065F46",border:`1px solid ${u.active?"#FCD34D":"#A7F3D0"}`,cursor:"pointer"}}>{u.active?"ระงับ":"เปิด"}</button>
               {u.id!==curUser.id&&<button onClick={()=>setDelConfirm(u)} style={{...BTN_X,color:"#DC2626",padding:"3px 6px",border:"1px solid #FECACA",borderRadius:5,background:"#FFF1F1"}}>ลบ</button>}
             </div>
@@ -1130,15 +1168,27 @@ function UsersMgmt({ users, curUser, showToast }) {
 }
 
 function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
-  // Normalize: Firebase may return null for keys that have never been set
+  // Ensure all channel keys exist to prevent undefined access crashes
   const safeConfig = {
-    email:     { ...(notifyConfig?.email     || {}) },
-    teams:     { ...(notifyConfig?.teams     || {}) },
-    powerauto: { ...(notifyConfig?.powerauto || {}) },
-    line:      { ...(notifyConfig?.line      || {}) },
+    email:     { enabled:false, serviceId:"", templateId:"", approverTemplateId:"", publicKey:"" },
+    teams:     { enabled:false, webhookUrl:"" },
+    powerauto: { enabled:false, webhookUrl:"" },
+    line:      { enabled:false, channelAccessToken:"", groupId:"" },
+    ...JSON.parse(JSON.stringify(notifyConfig||{})),
   };
+  // Ensure each sub-key also exists after merge
+  const defaultFields = {
+    email:     { enabled:false, serviceId:"", templateId:"", approverTemplateId:"", publicKey:"" },
+    teams:     { enabled:false, webhookUrl:"" },
+    powerauto: { enabled:false, webhookUrl:"" },
+    line:      { enabled:false, channelAccessToken:"", groupId:"" },
+  };
+  Object.keys(defaultFields).forEach(k => {
+    if (!safeConfig[k]) safeConfig[k] = { ...defaultFields[k] };
+    else safeConfig[k] = { ...defaultFields[k], ...safeConfig[k] };
+  });
   const [cfg,setCfg]=useState(safeConfig);
-  const setC=(ch,k,v)=>setCfg(p=>({...p,[ch]:{...(p[ch]||{}),[k]:v}}));
+  const setC=(ch,k,v)=>setCfg(p=>({...p,[ch]:{ ...(defaultFields[ch]||{}), ...(p[ch]||{}), [k]:v }}));
   const save=async()=>{await writeNotifyConfig(cfg);showToast("บันทึกการตั้งค่าแล้ว");};
   const channels=[
     {id:"email",icon:"✉",label:"อีเมล์ (EmailJS)",color:"#1E40AF",
@@ -1159,31 +1209,243 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
       <div style={{fontSize:18,fontWeight:600,color:"#111",marginBottom:4}}>ตั้งค่าการแจ้งเตือน</div>
       <div style={{fontSize:13,color:"#6B7280",marginBottom:20}}>เปิดช่องทางที่ต้องการ — ส่งอัตโนมัติเมื่อ Memo อนุมัติครบและแจ้งผู้อนุมัติเมื่อถึงคิว</div>
       <div style={{background:"#EEEDFE",border:"1px solid #AFA9EC",borderRadius:10,padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <div><div style={{fontSize:13,fontWeight:600,color:"#3C3489"}}>📄 Template เอกสาร (.docx)</div><div style={{fontSize:11,color:"#6B7280",marginTop:1}}>รองรับ Placeholder + จุดลงนาม {"{{sigZone_N}}"}</div></div>
+        <div><div style={{fontSize:13,fontWeight:600,color:"#3C3489"}}>📄 Template เอกสาร (.docx)</div><div style={{fontSize:11,color:"#6B7280",marginTop:1}}>รองรับ Placeholder + จุดลงนาม {{sigZone_N}}</div></div>
         <button onClick={onOpenPdfTemplate} style={{padding:"7px 16px",background:"#3C3489",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>จัดการ Template</button>
       </div>
-      {channels.map(ch=>{
-        const chCfg = cfg[ch.id] || {};
-        return (
-        <div key={ch.id} style={{background:"#fff",border:`1px solid ${chCfg.enabled?"#E5E7EB":"#F3F4F6"}`,borderRadius:10,marginBottom:12,overflow:"hidden"}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",background:chCfg.enabled?"#F9FAFB":"transparent"}} onClick={()=>setC(ch.id,"enabled",!chCfg.enabled)}>
+      {channels.map(ch=>(
+        <div key={ch.id} style={{background:"#fff",border:`1px solid ${cfg[ch.id]?.enabled?"#E5E7EB":"#F3F4F6"}`,borderRadius:10,marginBottom:12,overflow:"hidden"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",background:cfg[ch.id]?.enabled?"#F9FAFB":"transparent"}} onClick={()=>setC(ch.id,"enabled",!cfg[ch.id]?.enabled)}>
             <span style={{fontSize:20}}>{ch.icon}</span>
-            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500,color:"#111"}}>{ch.label}</div><div style={{fontSize:11,color:"#9CA3AF"}}>{chCfg.enabled?"เปิดใช้งาน":"คลิกเพื่อเปิด"}</div></div>
-            <Toggle value={chCfg.enabled||false} onChange={v=>setC(ch.id,"enabled",v)}/>
+            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500,color:"#111"}}>{ch.label}</div><div style={{fontSize:11,color:"#9CA3AF"}}>{cfg[ch.id]?.enabled?"เปิดใช้งาน":"คลิกเพื่อเปิด"}</div></div>
+            <Toggle value={cfg[ch.id]?.enabled||false} onChange={v=>setC(ch.id,"enabled",v)}/>
           </div>
-          {chCfg.enabled&&<div style={{padding:"14px 16px",borderTop:"1px solid #F3F4F6"}}>
+          {cfg[ch.id]?.enabled&&<div style={{padding:"14px 16px",borderTop:"1px solid #F3F4F6"}}>
             <div style={{padding:"10px 12px",background:ch.color+"11",border:`1px solid ${ch.color}33`,borderRadius:6,marginBottom:12}}>
               <div style={{fontSize:11,fontWeight:600,color:ch.color,marginBottom:4}}>วิธีตั้งค่า</div>
               {ch.guide.map((g,i)=><div key={i} style={{fontSize:11,color:"#6B7280",padding:"1px 0"}}>{i+1}. {g}</div>)}
             </div>
             <div style={{display:"grid",gridTemplateColumns:ch.fields.length>1?"1fr 1fr":"1fr",gap:8}}>
-              {ch.fields.map(f=><Field key={f.k} label={f.label}><input value={chCfg[f.k]||""} onChange={e=>setC(ch.id,f.k,e.target.value)} placeholder={f.ph} style={IS}/></Field>)}
+              {ch.fields.map(f=><Field key={f.k} label={f.label}><input value={(cfg[ch.id]||{})[f.k]||""} onChange={e=>setC(ch.id,f.k,e.target.value)} placeholder={f.ph} style={IS}/></Field>)}
             </div>
           </div>}
         </div>
-        );
-      })}
+      ))}
       <button onClick={save} style={BTN_GOLD}>บันทึกการตั้งค่า</button>
+    </div>
+  );
+}
+
+// ── Error Boundary ────────────────────────────────────────────────────────────
+class ErrorBoundary extends React.Component {
+  constructor(props){ super(props); this.state={error:null}; }
+  static getDerivedStateFromError(e){ return {error:e}; }
+  componentDidCatch(e,info){ console.error("[E-Memo Error]",e,info); }
+  render(){
+    if(this.state.error){
+      return (
+        <div style={{padding:32,textAlign:"center",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
+          <div style={{fontSize:32,marginBottom:12}}>⚠️</div>
+          <div style={{fontSize:15,fontWeight:600,color:"#991B1B",marginBottom:8}}>เกิดข้อผิดพลาด</div>
+          <div style={{fontSize:12,color:"#6B7280",marginBottom:20,maxWidth:400,margin:"0 auto 20px"}}>{this.state.error.message}</div>
+          <button onClick={()=>this.setState({error:null})}
+            style={{padding:"9px 20px",background:"#D4AF37",color:"#111",border:"none",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            ลองใหม่
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ── Inline PDF Preview (no external import needed) ────────────────────────
+function injectPrintCss(){
+  if(document.getElementById("ememo-print-css"))return;
+  const s=document.createElement("style");s.id="ememo-print-css";
+  s.textContent=`@media print{body>*{display:none!important;}#ememo-print-root{display:block!important;}}#ememo-print-root{display:none;font-family:'Noto Sans Thai','Sarabun',sans-serif;}`;
+  document.head.appendChild(s);
+}
+
+function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
+  const [zones, setZones] = useState((memo.signatureZones||[]).map((z,i)=>({...z,x:z.x??(10+i*35),y:z.y??72})));
+  const [printing, setPrinting] = useState(false);
+  const [dragInfo, setDragInfo] = useState(null); // {idx, startX, startY, origX, origY}
+  const previewRef = useRef();
+
+  useEffect(()=>{ injectPrintCss(); }, []);
+
+  const creator = users.find(u=>u.id===memo.createdBy)||{};
+  const allUsers = users.filter(u=>u.active);
+  const approvals = (memo.workflowLevels||[]).flatMap(lv=>lv.approvers||[]);
+  const fmtD = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
+
+  const addZone  = () => setZones(p=>[...p,{id:"sz"+Date.now(),label:`จุดลงนาม ${p.length+1}`,x:10+(p.length%3)*30,y:70+Math.floor(p.length/3)*15,assignedTo:"",signerName:""}]);
+  const remZone  = i => setZones(p=>p.filter((_,j)=>j!==i));
+  const labelZone= (i,v) => setZones(p=>p.map((z,j)=>j===i?{...z,label:v}:z));
+  const assignZone=(i,uid)=>{ const u=users.find(x=>x.id===uid)||{}; setZones(p=>p.map((z,j)=>j===i?{...z,assignedTo:uid,signerName:u.name||""}:z)); };
+
+  // Mouse drag on preview
+  const onZoneMouseDown=(e,i)=>{
+    if(e.target.tagName==="INPUT"||e.target.tagName==="BUTTON"||e.target.tagName==="SELECT")return;
+    e.preventDefault();
+    const rect=previewRef.current?.getBoundingClientRect();
+    if(!rect)return;
+    setDragInfo({idx:i,mx:e.clientX,my:e.clientY,ox:zones[i].x||0,oy:zones[i].y||0,cw:rect.width,ch:rect.height});
+  };
+  useEffect(()=>{
+    if(!dragInfo)return;
+    const onMove=e=>{
+      const dx=((e.clientX-dragInfo.mx)/dragInfo.cw)*100;
+      const dy=((e.clientY-dragInfo.my)/dragInfo.ch)*100;
+      const nx=Math.max(0,Math.min(dragInfo.ox+dx,82));
+      const ny=Math.max(0,Math.min(dragInfo.oy+dy,90));
+      setZones(p=>p.map((z,j)=>j===dragInfo.idx?{...z,x:nx,y:ny}:z));
+    };
+    const onUp=()=>setDragInfo(null);
+    window.addEventListener("mousemove",onMove);
+    window.addEventListener("mouseup",onUp);
+    return()=>{ window.removeEventListener("mousemove",onMove); window.removeEventListener("mouseup",onUp); };
+  },[dragInfo]);
+
+  const handlePrint=()=>{
+    setPrinting(true);
+    let root=document.getElementById("ememo-print-root");
+    if(!root){root=document.createElement("div");root.id="ememo-print-root";document.body.appendChild(root);}
+    root.innerHTML=`<div style="width:210mm;min-height:297mm;margin:0 auto;padding:20mm 22mm;box-sizing:border-box;font-family:'Noto Sans Thai','Sarabun',sans-serif;font-size:13px;color:#111;position:relative;">
+      <div style="text-align:center;border-bottom:2px solid #D4AF37;padding-bottom:12px;margin-bottom:20px;">
+        <div style="font-size:14px;font-weight:700;">${COMPANY}</div>
+        <div style="font-size:20px;font-weight:700;margin-top:6px;">บันทึกข้อความ (Memo)</div>
+        ${memo.docNo?`<div style="font-size:11px;color:#6B7280;">เลขที่ ${memo.docNo}</div>`:""}
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;"><tbody>
+        <tr><td style="width:100px;color:#6B7280;padding:3px 0;">เรื่อง:</td><td style="font-weight:600;">${memo.title||""}</td><td style="width:80px;color:#6B7280;text-align:right;">หมวดหมู่:</td><td style="text-align:right;">${memo.category||""}</td></tr>
+        <tr><td style="color:#6B7280;padding:3px 0;">ผู้สร้าง:</td><td>${creator.name||""} ${creator.dept?"("+creator.dept+")":""}</td><td style="color:#6B7280;text-align:right;">วันที่:</td><td style="text-align:right;">${fmtD(memo.createdAt)}</td></tr>
+      </tbody></table>
+      <div style="border-top:1px solid #E5E7EB;margin-bottom:20px;"></div>
+      <div style="font-size:13px;line-height:1.9;white-space:pre-wrap;min-height:120px;margin-bottom:28px;">${memo.content||""}</div>
+      ${zones.length?`<div style="margin-top:32px;border-top:1px solid #E5E7EB;padding-top:20px;"><div style="font-size:11px;color:#6B7280;font-weight:600;margin-bottom:14px;">ลงนาม</div><div style="display:flex;gap:24px;flex-wrap:wrap;">${zones.map(z=>`<div style="flex:1;min-width:140px;text-align:center;"><div style="height:52px;border-bottom:1px solid #111;margin-bottom:6px;"></div><div style="font-size:11px;font-weight:600;">${z.label||"จุดลงนาม"}</div>${z.signerName?`<div style="font-size:10px;color:#6B7280;">${z.signerName}</div>`:""}</div>`).join("")}</div></div>`:""}
+      ${approvals.length?`<div style="margin-top:24px;border-top:1px solid #E5E7EB;padding-top:16px;"><div style="font-size:11px;color:#6B7280;font-weight:600;margin-bottom:10px;">ขั้นตอนการอนุมัติ</div><table style="width:100%;border-collapse:collapse;font-size:11px;"><tr style="background:#F9FAFB;"><th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ผู้อนุมัติ</th><th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:80px;">สถานะ</th><th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:100px;">วันที่</th><th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ความคิดเห็น</th></tr>${approvals.map(ap=>{
+  const u=users.find(x=>x.id===ap.userId)||{};
+  const sl=ap.status==="approved"?"✓ อนุมัติ":ap.status==="rejected"?"✗ ปฏิเสธ":"○ รอ";
+  const sigImg=ap.signature||u.signature||null;
+  return`<tr>
+    <td style="padding:5px 8px;border:1px solid #E5E7EB;">${ap.name||u.name||ap.email||"-"}</td>
+    <td style="padding:5px 8px;border:1px solid #E5E7EB;text-align:center;">${sl}</td>
+    <td style="padding:5px 8px;border:1px solid #E5E7EB;text-align:center;">${ap.actionAt?fmtD(ap.actionAt):"-"}</td>
+    <td style="padding:5px 8px;border:1px solid #E5E7EB;">
+      ${sigImg?`<img src="${sigImg}" style="height:32px;display:block;margin-bottom:2px;border:1px solid #E5E7EB;border-radius:3px;background:#fff;padding:2px;"/>`:""  }
+      ${ap.comment||""}
+    </td>
+  </tr>`;
+}).join("")}</table></div>`:""}
+      <div style="position:absolute;bottom:16mm;left:22mm;right:22mm;display:flex;justify-content:space-between;font-size:10px;color:#9CA3AF;border-top:1px solid #F3F4F6;padding-top:8px;"><span>${COMPANY}</span><span>พิมพ์เมื่อ ${fmtD(new Date().toISOString())}</span></div>
+    </div>`;
+    setTimeout(()=>{ window.print(); setTimeout(()=>{ root.innerHTML=""; setPrinting(false); },500); },200);
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",background:"rgba(0,0,0,.75)",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
+      {/* Left controls */}
+      <div style={{width:260,background:"#111",color:"#fff",display:"flex",flexDirection:"column",flexShrink:0}}>
+        <div style={{padding:"16px 16px 12px",borderBottom:"1px solid #222"}}>
+          <div style={{fontSize:13,fontWeight:600,color:GOLD}}>ตัวอย่างเอกสาร + PDF</div>
+          <div style={{fontSize:11,color:"#555",marginTop:2}}>ลากจุด ✍ บนเอกสารเพื่อย้ายตำแหน่ง</div>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:14}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#aaa",marginBottom:10,textTransform:"uppercase",letterSpacing:.5}}>จุดลงนาม</div>
+          {zones.map((z,i)=>(
+            <div key={z.id||i} style={{background:"#1a1a1a",border:"1px solid #333",borderRadius:7,padding:10,marginBottom:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:7}}>
+                <span style={{fontSize:11,color:GOLD,fontWeight:600}}>✍ จุด {i+1}</span>
+                <button onClick={()=>remZone(i)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#666",padding:0,fontFamily:"inherit"}}>✕</button>
+              </div>
+              <div style={{marginBottom:6}}>
+                <div style={{fontSize:10,color:"#666",marginBottom:3}}>ชื่อตำแหน่ง</div>
+                <input value={z.label||""} onChange={e=>labelZone(i,e.target.value)} style={{width:"100%",background:"#222",border:"1px solid #333",borderRadius:5,color:"#fff",fontSize:11,padding:"5px 8px",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:"#666",marginBottom:3}}>มอบหมายให้</div>
+                <select value={z.assignedTo||""} onChange={e=>assignZone(i,e.target.value)} style={{width:"100%",background:"#222",border:"1px solid #333",borderRadius:5,color:"#fff",fontSize:11,padding:"5px 8px",fontFamily:"inherit"}}>
+                  <option value="">-- เลือกผู้ลงนาม --</option>
+                  {allUsers.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
+            </div>
+          ))}
+          <button onClick={addZone} style={{width:"100%",padding:"8px",background:"transparent",border:`1px dashed ${GOLD}`,borderRadius:6,color:GOLD,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>+ เพิ่มจุดลงนาม</button>
+        </div>
+        <div style={{padding:14,borderTop:"1px solid #222",display:"flex",flexDirection:"column",gap:8}}>
+          <button onClick={handlePrint} disabled={printing} style={{width:"100%",padding:"10px",background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:printing?"not-allowed":"pointer",fontFamily:"inherit",opacity:printing?.7:1}}>
+            {printing?"กำลังเตรียม...":"🖨️ โหลด / พิมพ์ PDF"}
+          </button>
+          <button onClick={()=>onSaveZones(zones)} style={{width:"100%",padding:"10px",background:"#1D4ED8",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+            💾 บันทึกจุดลงนาม
+          </button>
+          <button onClick={onClose} style={{width:"100%",padding:"9px",background:"transparent",color:"#666",border:"1px solid #333",borderRadius:6,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+            ✕ ปิด
+          </button>
+        </div>
+      </div>
+      {/* A4 preview */}
+      <div style={{flex:1,overflowY:"auto",padding:"24px 32px",display:"flex",justifyContent:"center",alignItems:"flex-start"}}>
+        <div style={{width:"100%",maxWidth:720}}>
+          <div style={{fontSize:12,color:"#888",marginBottom:12}}>ตัวอย่างเอกสาร A4 — ลากจุด ✍ เพื่อย้ายตำแหน่ง</div>
+          <div ref={previewRef} style={{background:"#fff",borderRadius:4,boxShadow:"0 4px 40px rgba(0,0,0,.5)",padding:"32px 36px",position:"relative",minHeight:900,userSelect:"none"}}>
+            {/* Draggable zone overlays */}
+            {zones.map((z,i)=>(
+              <div key={z.id||i} onMouseDown={e=>onZoneMouseDown(e,i)}
+                style={{position:"absolute",left:`${z.x||10}%`,top:`${z.y||70}%`,width:160,border:`2px dashed ${GOLD}`,borderRadius:4,background:"rgba(212,175,55,.08)",padding:"4px 8px",cursor:"move",zIndex:10,boxSizing:"border-box"}}>
+                <div style={{fontSize:10,color:GOLD,fontWeight:600,marginBottom:2}}>✍ จุด {i+1} — {z.label||"ลงนาม"}</div>
+                {z.signerName&&<div style={{fontSize:9,color:"#6B7280"}}>@ {z.signerName}</div>}
+                <div style={{height:32,borderBottom:"1px solid #333",margin:"4px 0"}}/>
+              </div>
+            ))}
+            {/* Header */}
+            <div style={{textAlign:"center",borderBottom:`2px solid ${GOLD}`,paddingBottom:12,marginBottom:20}}>
+              <div style={{fontSize:14,fontWeight:700,color:"#111"}}>{COMPANY}</div>
+              <div style={{fontSize:20,fontWeight:700,marginTop:6}}>บันทึกข้อความ (Memo)</div>
+              {memo.docNo&&<div style={{fontSize:11,color:"#6B7280",marginTop:3}}>เลขที่ {memo.docNo}</div>}
+            </div>
+            {/* Meta */}
+            <table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:12}}><tbody>
+              <tr><td style={{width:100,color:"#6B7280",paddingBottom:5}}>เรื่อง:</td><td style={{fontWeight:600,paddingBottom:5}}>{memo.title||<span style={{color:"#ccc"}}>ยังไม่ได้กรอก</span>}</td><td style={{width:80,color:"#6B7280",paddingBottom:5,textAlign:"right"}}>หมวดหมู่:</td><td style={{paddingBottom:5,textAlign:"right"}}>{memo.category||"-"}</td></tr>
+              <tr><td style={{color:"#6B7280"}}>ผู้สร้าง:</td><td>{creator.name||"-"} {creator.dept?`(${creator.dept})`:""}</td><td style={{color:"#6B7280",textAlign:"right"}}>วันที่:</td><td style={{textAlign:"right"}}>{fmtD(memo.createdAt||new Date().toISOString())}</td></tr>
+            </tbody></table>
+            <div style={{borderTop:"1px solid #E5E7EB",marginBottom:20}}/>
+            <div style={{fontSize:13,lineHeight:1.9,whiteSpace:"pre-wrap",color:"#374151",minHeight:120,marginBottom:28}}>
+              {memo.content||<span style={{color:"#ccc",fontStyle:"italic"}}>เนื้อหาจะแสดงที่นี่...</span>}
+            </div>
+            {zones.length===0&&<div style={{padding:16,background:"#F9FAFB",border:"1px dashed #E5E7EB",borderRadius:6,textAlign:"center",color:"#9CA3AF",fontSize:12}}>กด "+ เพิ่มจุดลงนาม" แล้วลากไปวางตำแหน่งที่ต้องการบนเอกสาร</div>}
+            {approvals.length>0&&(
+              <div style={{marginTop:32,borderTop:"1px solid #E5E7EB",paddingTop:16}}>
+                <div style={{fontSize:11,color:"#6B7280",marginBottom:10,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>ขั้นตอนการอนุมัติ</div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}><thead>
+                  <tr style={{background:"#F9FAFB"}}>{["ผู้อนุมัติ","สถานะ","วันที่","ความคิดเห็น"].map(h=><th key={h} style={{textAlign:"left",padding:"6px 10px",border:"1px solid #E5E7EB",fontWeight:600,color:"#6B7280"}}>{h}</th>)}</tr>
+                </thead><tbody>
+                  {approvals.map((ap,i)=>{
+                    const u=users.find(x=>x.id===ap.userId)||{};
+                    const sc=ap.status==="approved"?{c:"#065F46",l:"✓ อนุมัติ"}:ap.status==="rejected"?{c:"#991B1B",l:"✗ ปฏิเสธ"}:{c:"#B45309",l:"○ รอ"};
+                    const sigImg = ap.signature || u.signature || null;
+                    return <tr key={i}>
+                      <td style={{padding:"6px 10px",border:"1px solid #E5E7EB"}}>{ap.name||u.name||ap.email||"-"}</td>
+                      <td style={{padding:"6px 10px",border:"1px solid #E5E7EB",color:sc.c,fontWeight:500}}>{sc.l}</td>
+                      <td style={{padding:"6px 10px",border:"1px solid #E5E7EB",color:"#6B7280"}}>{ap.actionAt?fmtD(ap.actionAt):"-"}</td>
+                      <td style={{padding:"6px 10px",border:"1px solid #E5E7EB"}}>
+                        {/* ── ข้อ 3: แสดงลายเซ็นจริงในตาราง ── */}
+                        {sigImg && <img src={sigImg} alt="sig" style={{height:32,display:"block",marginBottom:2,border:"1px solid #E5E7EB",borderRadius:3,background:"#fff",padding:2}}/>}
+                        <span style={{fontSize:11,color:"#6B7280"}}>{ap.comment||""}</span>
+                      </td>
+                    </tr>;
+                  })}
+                </tbody></table>
+              </div>
+            )}
+            <div style={{marginTop:48,borderTop:"1px solid #F3F4F6",paddingTop:8,display:"flex",justifyContent:"space-between",fontSize:10,color:"#9CA3AF"}}>
+              <span>{COMPANY}</span><span>พิมพ์เมื่อ {fmtD(new Date().toISOString())}</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1231,9 +1493,32 @@ export default function EMemo() {
   const myMemos = memoList.filter(m=>m.createdBy===curUser.id);
   const selMemo = memoList.find(m=>m.id===selId);
 
-  const openMemo    = id   => { setSelId(id); setView("detail"); };
-  const startCreate = ()   => { setEditMemo({title:"",content:"",category:"ทั่วไป",workflowLevels:[],notify:{emailList:[],postToTeams:false,postToPowerAuto:false,postToLine:false},attachments:[]}); setView("create"); };
-  const startEdit   = memo => { setEditMemo({...memo,workflowLevels:(memo.workflowLevels||[]).map(lv=>({...lv,approvers:(lv.approvers||[]).map(a=>({...a}))})),attachments:[...(memo.attachments||[])],notify:{...memo.notify,emailList:[...(memo.notify?.emailList||[])]}}); setView("create"); };
+  // ── ข้อ 5: Browser back/forward navigation ────────────────────────────────
+  useEffect(() => {
+    const onPop = (e) => {
+      const state = e.state;
+      if (state?.view) {
+        setView(state.view);
+        setSelId(state.selId || null);
+        setEditMemo(null);
+      } else {
+        setView("dashboard");
+        setSelId(null);
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    // Set initial state
+    window.history.replaceState({ view:"dashboard" }, "", window.location.pathname);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const pushHistory = (view, extra={}) => {
+    window.history.pushState({ view, ...extra }, "", window.location.pathname);
+  };
+
+  const openMemo    = id   => { setSelId(id); setView("detail"); pushHistory("detail", { selId: id }); };
+  const startCreate = ()   => { setEditMemo({title:"",content:"",category:"ทั่วไป",workflowLevels:[],notify:{emailList:[],postToTeams:false,postToPowerAuto:false,postToLine:false},attachments:[]}); setView("create"); pushHistory("create"); };
+  const startEdit   = memo => { setEditMemo({...memo,workflowLevels:(memo.workflowLevels||[]).map(lv=>({...lv,approvers:(lv.approvers||[]).map(a=>({...a}))})),attachments:[...(memo.attachments||[])],notify:{...memo.notify,emailList:[...(memo.notify?.emailList||[])]}}); setView("create"); pushHistory("create"); };
 
   const submitMemo = async (isDraft) => {
     if(!editMemo.title?.trim()){showToast("กรุณากรอกชื่อเรื่อง","error");return;}
@@ -1347,7 +1632,7 @@ export default function EMemo() {
         <div style={{padding:"10px 10px 6px"}}><button onClick={startCreate} style={{...BTN_GOLD,width:"100%",padding:"9px",fontSize:12,borderRadius:6}}>+ สร้าง Memo ใหม่</button></div>
         <nav style={{flex:1,padding:"4px 8px",overflowY:"auto"}}>
           {NAV.filter(n=>n.roles.includes(curUser.role)).map(n=>(
-            <button key={n.k} onClick={()=>setView(n.k)} style={{width:"100%",padding:"8px 10px",borderRadius:6,background:view===n.k?"#1e1e1e":"transparent",color:view===n.k?GOLD:"#888",border:"none",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,marginBottom:1,textAlign:"left"}}>
+            <button key={n.k} onClick={()=>{ setView(n.k); pushHistory(n.k); }} style={{width:"100%",padding:"8px 10px",borderRadius:6,background:view===n.k?"#1e1e1e":"transparent",color:view===n.k?GOLD:"#888",border:"none",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,marginBottom:1,textAlign:"left"}}>
               <span style={{fontSize:13,width:16,textAlign:"center"}}>{n.i}</span>
               <span style={{flex:1}}>{n.l}</span>
               {n.badge?<span style={{background:"#DC2626",color:"#fff",borderRadius:10,fontSize:10,padding:"1px 5px",fontWeight:600}}>{n.badge}</span>:null}
@@ -1375,7 +1660,7 @@ export default function EMemo() {
         {view==="all"      &&can(curUser.role,"viewAll")&&<MemoListView memoList={memoList} users={users} title="Memo ทั้งหมด" curUser={curUser} onOpen={openMemo}/>}
         {view==="search"   &&<SearchView memoList={curUser.role==="user"?memoList.filter(m=>m.createdBy===curUser.id||(m.workflowLevels||[]).flatMap(lv=>lv.approvers||[]).find(a=>a.userId===curUser.id||a.email===curUser.email)):memoList} users={users} curUser={curUser} onOpen={openMemo}/>}
         {view==="users"    &&can(curUser.role,"manageUsers")&&<UsersMgmt users={users} curUser={curUser} showToast={showToast}/>}
-        {view==="settings" &&can(curUser.role,"settings")&&<SettingsView notifyConfig={notifyConfig} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)}/>}
+        {view==="settings" &&can(curUser.role,"settings")&&<ErrorBoundary><SettingsView notifyConfig={notifyConfig} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)}/></ErrorBoundary>}
         {view==="create"   &&editMemo&&<CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"} onOpenSigZones={()=>setShowSigZones(true)}/>}
         {view==="detail"   &&selMemo&&<DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplates={pdfTemplates} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal}/>}
       </div>
