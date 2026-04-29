@@ -45,6 +45,9 @@ const BLACK = "#111111";
 // ── Constants ─────────────────────────────────────────────────────────────────
 const COMPANY       = "บริษัท ไทยซอสเซส มาร์เก็ตติ้ง จำกัด";
 const COMPANY_SHORT = "Thai Sauces Marketing";
+
+// ── Built-in system template (used when no custom .docx template uploaded) ──
+const SYSTEM_TEMPLATE_ID = "__system__";
 const BASE_CATEGORIES = ["ทั่วไป","งบประมาณ","จัดซื้อจัดจ้าง","รายงาน","นโยบาย","HR","IT","อื่นๆ"];
 
 const STATUS_LABEL = {
@@ -186,6 +189,80 @@ const fmtDate  = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digi
 const fmtShort = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"short",year:"2-digit"});
 const getInit  = (name="") => { const p=name.trim().split(" "); return p.length>=2?p[0][0]+p[1][0]:name.slice(0,2); };
 const newId    = (pfx="") => pfx+Date.now()+Math.random().toString(36).slice(2,5);
+
+// Built-in PDF using browser print — no .docx needed
+function printSystemPDF(memo, users) {
+  const creator = users.find(u=>u.id===memo.createdBy)||{};
+  const approvals = (memo.workflowLevels||[]).flatMap(lv=>lv.approvers||[]);
+  const fD = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
+  let root = document.getElementById("ememo-print-root");
+  if(!root){ root=document.createElement("div"); root.id="ememo-print-root"; document.body.appendChild(root); }
+  if(!document.getElementById("ememo-print-css")){
+    const s=document.createElement("style"); s.id="ememo-print-css";
+    s.textContent=`@media print{body>*{display:none!important;}#ememo-print-root{display:block!important;}}#ememo-print-root{display:none;font-family:'Noto Sans Thai','Sarabun',sans-serif;}`;
+    document.head.appendChild(s);
+  }
+  let html = '<div style="width:210mm;min-height:297mm;margin:0 auto;padding:20mm 22mm;box-sizing:border-box;font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;">';
+  html += '<div style="text-align:center;border-bottom:2px solid #D4AF37;padding-bottom:12px;margin-bottom:20px;">';
+  html += '<div style="font-size:14px;font-weight:700;">'+COMPANY+'</div>';
+  html += '<div style="font-size:20px;font-weight:700;margin-top:6px;">บันทึกข้อความ (Memo)</div>';
+  if(memo.docNo) html += '<div style="font-size:11px;color:#6B7280;">เลขที่ '+memo.docNo+'</div>';
+  html += '</div>';
+  html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;"><tbody>';
+  html += '<tr><td style="width:90px;color:#6B7280;padding:3px 0;">เรื่อง:</td><td style="font-weight:600;">'+(memo.title||"")+'</td>';
+  html += '<td style="width:80px;color:#6B7280;text-align:right;">หมวดหมู่:</td><td style="text-align:right;">'+(memo.category||"")+'</td></tr>';
+  html += '<tr><td style="color:#6B7280;padding:3px 0;">ผู้สร้าง:</td><td>'+(creator.name||"")+(creator.dept?" ("+creator.dept+")":"")+'</td>';
+  html += '<td style="color:#6B7280;text-align:right;">วันที่:</td><td style="text-align:right;">'+(memo.createdAt?fD(memo.createdAt):"")+'</td></tr>';
+  if(memo.docNo) html += '<tr><td style="color:#6B7280;padding:3px 0;">เลขที่:</td><td colspan="3" style="font-family:monospace;font-weight:600;">'+memo.docNo+'</td></tr>';
+  html += '</tbody></table>';
+  html += '<div style="border-top:1px solid #E5E7EB;margin-bottom:20px;"></div>';
+  html += '<div style="font-size:13px;line-height:1.9;white-space:pre-wrap;min-height:140px;margin-bottom:32px;">'+(memo.content||"")+'</div>';
+  // Signature zones
+  const zones = memo.signatureZones||[];
+  if(zones.length>0){
+    html += '<div style="margin-top:24px;border-top:1px solid #E5E7EB;padding-top:20px;">';
+    html += '<div style="font-size:11px;color:#6B7280;font-weight:600;margin-bottom:14px;">ลงนาม</div>';
+    html += '<div style="display:flex;gap:24px;flex-wrap:wrap;">';
+    zones.forEach(z=>{
+      const u=users.find(x=>x.id===z.assignedTo)||{};
+      const sig=u.signature||"";
+      html += '<div style="flex:1;min-width:140px;text-align:center;">';
+      if(sig) html += '<img src="'+sig+'" style="height:48px;display:block;margin:0 auto 4px;"/>';
+      else html += '<div style="height:48px;border-bottom:1px solid #111;margin-bottom:6px;"></div>';
+      html += '<div style="font-size:11px;font-weight:600;">'+(z.label||"จุดลงนาม")+'</div>';
+      if(u.name||z.signerName) html += '<div style="font-size:10px;color:#6B7280;">'+(u.name||z.signerName||"")+'</div>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+  }
+  // Approval table
+  if(approvals.length>0){
+    html += '<div style="margin-top:24px;border-top:1px solid #E5E7EB;padding-top:16px;">';
+    html += '<div style="font-size:11px;color:#6B7280;font-weight:600;margin-bottom:10px;">ขั้นตอนการอนุมัติ</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+    html += '<tr style="background:#F9FAFB;"><th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ผู้อนุมัติ</th>';
+    html += '<th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:80px;">สถานะ</th>';
+    html += '<th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:100px;">วันที่</th>';
+    html += '<th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ลายเซ็น / ความคิดเห็น</th></tr>';
+    approvals.forEach(ap=>{
+      const u=users.find(x=>x.id===ap.userId)||{};
+      const sl=ap.status==="approved"?"✓ อนุมัติ":ap.status==="rejected"?"✗ ปฏิเสธ":"○ รอ";
+      const sig=ap.signature||u.signature||"";
+      html += '<tr><td style="padding:5px 8px;border:1px solid #E5E7EB;">'+(ap.name||u.name||ap.email||"-")+'</td>';
+      html += '<td style="padding:5px 8px;border:1px solid #E5E7EB;text-align:center;">'+sl+'</td>';
+      html += '<td style="padding:5px 8px;border:1px solid #E5E7EB;text-align:center;">'+(ap.actionAt?fD(ap.actionAt):"-")+'</td>';
+      html += '<td style="padding:5px 8px;border:1px solid #E5E7EB;">';
+      if(sig) html += '<img src="'+sig+'" style="height:32px;display:block;margin-bottom:2px;border:1px solid #E5E7EB;border-radius:3px;background:#fff;padding:2px;"/>';
+      html += (ap.comment||"")+'</td></tr>';
+    });
+    html += '</table></div>';
+  }
+  html += '<div style="margin-top:32px;border-top:1px solid #F3F4F6;padding-top:8px;display:flex;justify-content:space-between;font-size:10px;color:#9CA3AF;">';
+  html += '<span>'+COMPANY+'</span><span>พิมพ์เมื่อ '+fD(new Date().toISOString())+'</span></div>';
+  html += '</div>';
+  root.innerHTML = html;
+  setTimeout(()=>{ window.print(); setTimeout(()=>{ root.innerHTML=""; },500); }, 200);
+}
 
 // [3] Level-based workflow helpers ────────────────────────────────────────────
 // workflowLevels: [{id, level(1-based), mode:"all"|"any", approvers:[{id?, email, name, status, comment, actionAt}]}]
@@ -1029,14 +1106,19 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
           {notifySummary.length>0&&<Section title="แจ้งเตือนเมื่ออนุมัติ"><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{notifySummary.map(s=><span key={s} style={{fontSize:11,background:"#F9FAFB",border:"1px solid #F3F4F6",borderRadius:5,padding:"3px 8px"}}>{s}</span>)}</div></Section>}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {/* ── ข้อ 3 & 6: แสดงปุ่ม PDF preview/export ทุก status ยกเว้น draft/recalled ── */}
-            {(memo.status==="approved"||memo.status==="pending"||memo.status==="rejected")&&tplList.length>0&&(
-              <button onClick={()=>{if(tplList.length===1)exportMemoDocx(memo,users,tplList[0]);else setShowPicker(true);}}
-                style={{padding:11,background:memo.status==="approved"?"#EFF6FF":"#F9FAFB",color:memo.status==="approved"?"#1E40AF":"#6B7280",border:`1px solid ${memo.status==="approved"?"#BFDBFE":"#E5E7EB"}`,borderRadius:6,fontSize:13,fontWeight:500,cursor:"pointer"}}>
-                {memo.status==="approved"?"📄 Export .docx (อนุมัติครบ)":"📄 ดูตัวอย่าง .docx"}
-              </button>
-            )}
-            {(memo.status==="approved"||memo.status==="pending")&&tplList.length===0&&(
-              <div style={{padding:"9px 12px",background:"#F9FAFB",border:"1px dashed #E5E7EB",borderRadius:6,fontSize:11,color:"#9CA3AF",textAlign:"center"}}>ยังไม่มี Template — ตั้งค่าใน ⚙</div>
+            {/* PDF export — ใช้ system template ถ้ายังไม่มี custom template */}
+            {(memo.status==="approved"||memo.status==="pending"||memo.status==="rejected")&&(
+              tplList.length>0 ? (
+                <button onClick={()=>{if(tplList.length===1)exportMemoDocx(memo,users,tplList[0]);else setShowPicker(true);}}
+                  style={{padding:11,background:memo.status==="approved"?"#EFF6FF":"#F9FAFB",color:memo.status==="approved"?"#1E40AF":"#6B7280",border:`1px solid ${memo.status==="approved"?"#BFDBFE":"#E5E7EB"}`,borderRadius:6,fontSize:13,fontWeight:500,cursor:"pointer"}}>
+                  {memo.status==="approved"?"📄 Export .docx (อนุมัติครบ)":"📄 ดูตัวอย่าง .docx"}
+                </button>
+              ) : (
+                <button onClick={()=>printSystemPDF(memo,users)}
+                  style={{padding:11,background:"#ECFDF5",color:"#065F46",border:"1px solid #A7F3D0",borderRadius:6,fontSize:13,fontWeight:500,cursor:"pointer"}}>
+                  🖨️ {memo.status==="approved"?"พิมพ์ PDF (อนุมัติครบ)":"พิมพ์ตัวอย่าง PDF"}
+                </button>
+              )
             )}
             {canApprove&&<><button onClick={()=>setModal({type:"approve",memo})} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ อนุมัติ</button><button onClick={()=>setModal({type:"reject",memo})} style={{padding:11,background:"#FFF1F1",color:"#991B1B",border:"1px solid #FECACA",borderRadius:6,fontSize:13,cursor:"pointer"}}>✕ ปฏิเสธ</button></>}
             {isCreator&&memo.status==="pending"&&can(curUser.role,"recall")&&<button onClick={onRecall} style={{padding:11,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:13,cursor:"pointer"}}>↩ เรียกคืน Memo</button>}
@@ -1167,75 +1249,106 @@ function UsersMgmt({ users, curUser, showToast }) {
   );
 }
 
+// Default notify config shape (used by SettingsView)
+const DEFAULT_NOTIFY = {
+  email:     { enabled:false, serviceId:"", templateId:"", approverTemplateId:"", publicKey:"" },
+  teams:     { enabled:false, webhookUrl:"" },
+  powerauto: { enabled:false, webhookUrl:"" },
+  line:      { enabled:false, channelAccessToken:"", groupId:"" },
+};
+
 function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
-  // Ensure all channel keys exist to prevent undefined access crashes
-  const safeConfig = {
-    email:     { enabled:false, serviceId:"", templateId:"", approverTemplateId:"", publicKey:"" },
-    teams:     { enabled:false, webhookUrl:"" },
-    powerauto: { enabled:false, webhookUrl:"" },
-    line:      { enabled:false, channelAccessToken:"", groupId:"" },
-    ...JSON.parse(JSON.stringify(notifyConfig||{})),
+  const safe = ch => ({ ...(DEFAULT_NOTIFY[ch]||{}), ...((notifyConfig||{})[ch]||{}) });
+  const [email,     setEmail]     = useState(()=>safe("email"));
+  const [teams,     setTeams]     = useState(()=>safe("teams"));
+  const [powerauto, setPowerauto] = useState(()=>safe("powerauto"));
+  const [line,      setLine]      = useState(()=>safe("line"));
+
+  const cfgMap  = { email, teams, powerauto, line };
+  const setMap  = { email:setEmail, teams:setTeams, powerauto:setPowerauto, line:setLine };
+  const setF    = (ch,k,v) => setMap[ch](p=>({...p,[k]:v}));
+
+  const save = async () => {
+    try {
+      await writeNotifyConfig({ email, teams, powerauto, line });
+      showToast("บันทึกการตั้งค่าแล้ว");
+    } catch(e) { showToast("บันทึกไม่สำเร็จ: "+e.message,"error"); }
   };
-  // Ensure each sub-key also exists after merge
-  const defaultFields = {
-    email:     { enabled:false, serviceId:"", templateId:"", approverTemplateId:"", publicKey:"" },
-    teams:     { enabled:false, webhookUrl:"" },
-    powerauto: { enabled:false, webhookUrl:"" },
-    line:      { enabled:false, channelAccessToken:"", groupId:"" },
-  };
-  Object.keys(defaultFields).forEach(k => {
-    if (!safeConfig[k]) safeConfig[k] = { ...defaultFields[k] };
-    else safeConfig[k] = { ...defaultFields[k], ...safeConfig[k] };
-  });
-  const [cfg,setCfg]=useState(safeConfig);
-  const setC=(ch,k,v)=>setCfg(p=>({...p,[ch]:{ ...(defaultFields[ch]||{}), ...(p[ch]||{}), [k]:v }}));
-  const save=async()=>{await writeNotifyConfig(cfg);showToast("บันทึกการตั้งค่าแล้ว");};
-  const channels=[
-    {id:"email",icon:"✉",label:"อีเมล์ (EmailJS)",color:"#1E40AF",
-     fields:[{k:"serviceId",label:"Service ID",ph:"service_xxxxxxx"},{k:"templateId",label:"Template ID (อนุมัติครบ)",ph:"template_xxxxxxx"},{k:"approverTemplateId",label:"Template ID (แจ้งผู้อนุมัติ)",ph:"template_xxxxxxx"},{k:"publicKey",label:"Public Key",ph:"your_public_key"}],
-     guide:["สมัครที่ emailjs.com (ฟรี 200/เดือน)","สร้าง Email Service → Gmail/Outlook","Template 1: แจ้งผู้อนุมัติ ใช้ {{to_email}} {{approver_name}} {{memo_title}} {{memo_content}} {{app_url}}","Template 2: แจ้งเมื่ออนุมัติครบ ใช้ {{memo_title}} {{creator_name}} {{approved_date}}"]},
-    {id:"teams",icon:"🔵",label:"Microsoft Teams",color:"#464EB8",
-     fields:[{k:"webhookUrl",label:"Webhook URL",ph:"https://your-org.webhook.office.com/..."}],
-     guide:["Teams → Channel → ⋯ → Connectors → Incoming Webhook","ตั้งชื่อ E-Memo → Create → Copy URL"]},
-    {id:"powerauto",icon:"🟣",label:"SharePoint / Power Automate",color:"#742774",
-     fields:[{k:"webhookUrl",label:"HTTP Trigger URL",ph:"https://prod-xx.logic.azure.com/..."}],
-     guide:["Power Automate → Automated Cloud Flow → When HTTP request received","Action: SharePoint Create news / Outlook Send email","Copy HTTP POST URL"]},
-    {id:"line",icon:"🟢",label:"LINE Messaging API",color:"#06C755",
-     fields:[{k:"channelAccessToken",label:"Channel Access Token",ph:"eyJ..."},{k:"groupId",label:"Group ID",ph:"C1234567890..."}],
-     guide:["manager.line.biz → สร้าง Messaging API","developers.line.biz → Copy Token","เพิ่ม Bot เข้า Group → บันทึก Group ID"]},
+
+  const CHANNELS = [
+    { id:"email",    icon:"✉",  label:"อีเมล์ (EmailJS)",             color:"#1E40AF",
+      fields:[{k:"serviceId",label:"Service ID",ph:"service_xxxxxxx"},{k:"templateId",label:"Template ID (แจ้งเมื่ออนุมัติ)",ph:"template_xxxxxxx"},{k:"approverTemplateId",label:"Template ID (แจ้งผู้อนุมัติ)",ph:"template_xxxxxxx"},{k:"publicKey",label:"Public Key",ph:"your_public_key"}],
+      guide:["สมัครที่ emailjs.com (ฟรี 200/เดือน)","สร้าง Email Service → Gmail/Outlook","สร้าง Template ใช้ตัวแปร {{memo_title}} {{creator_name}} {{to_email}}","คัดลอก Service ID / Template ID / Public Key มากรอก"] },
+    { id:"teams",    icon:"🔵", label:"Microsoft Teams Webhook",        color:"#464EB8",
+      fields:[{k:"webhookUrl",label:"Webhook URL",ph:"https://your-org.webhook.office.com/..."}],
+      guide:["Teams → Channel → ⋯ → Connectors → Incoming Webhook","ตั้งชื่อ E-Memo → Create → Copy URL"] },
+    { id:"powerauto",icon:"🟣", label:"SharePoint / Power Automate",   color:"#742774",
+      fields:[{k:"webhookUrl",label:"HTTP Trigger URL",ph:"https://prod-xx.logic.azure.com/..."}],
+      guide:["Power Automate → Automated Cloud Flow → When HTTP request received","Action: SharePoint Create news / Send email","Copy HTTP POST URL"] },
+    { id:"line",     icon:"🟢", label:"LINE Messaging API (Group)",     color:"#06C755",
+      fields:[{k:"channelAccessToken",label:"Channel Access Token",ph:"eyJ..."},{k:"groupId",label:"Group ID",ph:"C1234567890..."}],
+      guide:["manager.line.biz → สร้าง Messaging API","developers.line.biz → Copy Token","เพิ่ม Bot เข้า Group → บันทึก Group ID จาก webhook event"] },
   ];
+
   return (
     <div style={{padding:24}}>
-      <div style={{fontSize:18,fontWeight:600,color:"#111",marginBottom:4}}>ตั้งค่าการแจ้งเตือน</div>
-      <div style={{fontSize:13,color:"#6B7280",marginBottom:20}}>เปิดช่องทางที่ต้องการ — ส่งอัตโนมัติเมื่อ Memo อนุมัติครบและแจ้งผู้อนุมัติเมื่อถึงคิว</div>
-      <div style={{background:"#EEEDFE",border:"1px solid #AFA9EC",borderRadius:10,padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <div><div style={{fontSize:13,fontWeight:600,color:"#3C3489"}}>📄 Template เอกสาร (.docx)</div><div style={{fontSize:11,color:"#6B7280",marginTop:1}}>รองรับ Placeholder + จุดลงนาม {{sigZone_N}}</div></div>
-        <button onClick={onOpenPdfTemplate} style={{padding:"7px 16px",background:"#3C3489",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>จัดการ Template</button>
-      </div>
-      {channels.map(ch=>(
-        <div key={ch.id} style={{background:"#fff",border:`1px solid ${cfg[ch.id]?.enabled?"#E5E7EB":"#F3F4F6"}`,borderRadius:10,marginBottom:12,overflow:"hidden"}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",background:cfg[ch.id]?.enabled?"#F9FAFB":"transparent"}} onClick={()=>setC(ch.id,"enabled",!cfg[ch.id]?.enabled)}>
-            <span style={{fontSize:20}}>{ch.icon}</span>
-            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500,color:"#111"}}>{ch.label}</div><div style={{fontSize:11,color:"#9CA3AF"}}>{cfg[ch.id]?.enabled?"เปิดใช้งาน":"คลิกเพื่อเปิด"}</div></div>
-            <Toggle value={cfg[ch.id]?.enabled||false} onChange={v=>setC(ch.id,"enabled",v)}/>
-          </div>
-          {cfg[ch.id]?.enabled&&<div style={{padding:"14px 16px",borderTop:"1px solid #F3F4F6"}}>
-            <div style={{padding:"10px 12px",background:ch.color+"11",border:`1px solid ${ch.color}33`,borderRadius:6,marginBottom:12}}>
-              <div style={{fontSize:11,fontWeight:600,color:ch.color,marginBottom:4}}>วิธีตั้งค่า</div>
-              {ch.guide.map((g,i)=><div key={i} style={{fontSize:11,color:"#6B7280",padding:"1px 0"}}>{i+1}. {g}</div>)}
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:ch.fields.length>1?"1fr 1fr":"1fr",gap:8}}>
-              {ch.fields.map(f=><Field key={f.k} label={f.label}><input value={(cfg[ch.id]||{})[f.k]||""} onChange={e=>setC(ch.id,f.k,e.target.value)} placeholder={f.ph} style={IS}/></Field>)}
-            </div>
-          </div>}
+      <div style={{fontSize:18,fontWeight:600,color:"#111",marginBottom:4}}>ตั้งค่าระบบ</div>
+      <div style={{fontSize:13,color:"#6B7280",marginBottom:20}}>ตั้งค่าการแจ้งเตือนและ Template เอกสาร</div>
+
+      {/* PDF Template */}
+      <div style={{background:"#EEEDFE",border:"1px solid #AFA9EC",borderRadius:10,padding:"12px 16px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontSize:13,fontWeight:600,color:"#3C3489"}}>📄 Template เอกสาร (.docx)</div>
+          <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>อัปโหลด .docx template เพื่อ export เอกสารพร้อมลายเซ็น (ถ้าไม่มี ระบบใช้ built-in template แทน)</div>
         </div>
-      ))}
-      <button onClick={save} style={BTN_GOLD}>บันทึกการตั้งค่า</button>
+        <button onClick={onOpenPdfTemplate} style={{padding:"8px 16px",background:"#3C3489",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",flexShrink:0}}>
+          จัดการ Template
+        </button>
+      </div>
+
+      {/* Notification channels */}
+      {CHANNELS.map(ch => {
+        const c = cfgMap[ch.id] || {};
+        return (
+          <div key={ch.id} style={{background:"#fff",border:`1px solid ${c.enabled?"#E5E7EB":"#F3F4F6"}`,borderRadius:10,marginBottom:12,overflow:"hidden"}}>
+            <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",background:c.enabled?"#F9FAFB":"transparent"}}
+              onClick={()=>setF(ch.id,"enabled",!c.enabled)}>
+              <span style={{fontSize:20}}>{ch.icon}</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:500,color:"#111"}}>{ch.label}</div>
+                <div style={{fontSize:11,color:"#9CA3AF"}}>{c.enabled?"เปิดใช้งาน — กรอกข้อมูลด้านล่าง":"คลิกเพื่อเปิดใช้งาน"}</div>
+              </div>
+              <Toggle value={!!c.enabled} onChange={v=>{setF(ch.id,"enabled",v);}}/>
+            </div>
+            {c.enabled && (
+              <div style={{padding:"14px 16px",borderTop:"1px solid #F3F4F6"}}>
+                <div style={{padding:"10px 12px",background:ch.color+"18",border:`1px solid ${ch.color}44`,borderRadius:6,marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:600,color:ch.color,marginBottom:4}}>วิธีตั้งค่า</div>
+                  {ch.guide.map((g,i)=><div key={i} style={{fontSize:11,color:"#6B7280",padding:"1px 0"}}>{i+1}. {g}</div>)}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:ch.fields.length>1?"1fr 1fr":"1fr",gap:8}}>
+                  {ch.fields.map(f=>(
+                    <div key={f.k} style={{marginBottom:6}}>
+                      <label style={{fontSize:11,fontWeight:600,color:"#6B7280",display:"block",marginBottom:3}}>{f.label}</label>
+                      <input value={c[f.k]||""} onChange={e=>setF(ch.id,f.k,e.target.value)} placeholder={f.ph}
+                        style={{width:"100%",padding:"7px 9px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,background:"#fff",color:"#111",boxSizing:"border-box"}}/>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <button onClick={save} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"9px 20px",background:"#D4AF37",color:"#111",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+        💾 บันทึกการตั้งค่า
+      </button>
     </div>
   );
 }
 
-// ── Error Boundary ────────────────────────────────────────────────────────────
+
 class ErrorBoundary extends React.Component {
   constructor(props){ super(props); this.state={error:null}; }
   static getDerivedStateFromError(e){ return {error:e}; }
@@ -1688,7 +1801,15 @@ export default function EMemo() {
         {view==="all"      &&can(curUser.role,"viewAll")&&<MemoListView memoList={memoList} users={users} title="Memo ทั้งหมด" curUser={curUser} onOpen={openMemo}/>}
         {view==="search"   &&<SearchView memoList={curUser.role==="user"?memoList.filter(m=>m.createdBy===curUser.id||(m.workflowLevels||[]).flatMap(lv=>lv.approvers||[]).find(a=>a.userId===curUser.id||a.email===curUser.email)):memoList} users={users} curUser={curUser} onOpen={openMemo}/>}
         {view==="users"    &&can(curUser.role,"manageUsers")&&<UsersMgmt users={users} curUser={curUser} showToast={showToast}/>}
-        {view==="settings" &&can(curUser.role,"settings")&&<SettingsView notifyConfig={notifyConfig} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)}/>}
+        {view==="settings" &&(
+          can(curUser.role,"settings")
+            ? <ErrorBoundary><SettingsView notifyConfig={notifyConfig} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)}/></ErrorBoundary>
+            : <div style={{padding:32,textAlign:"center",color:"#9CA3AF",fontSize:13}}>
+                <div style={{fontSize:24,marginBottom:8}}>🔒</div>
+                <div>สิทธิ์ไม่เพียงพอ (role: {curUser.role||"ไม่ระบุ"})</div>
+                <div style={{fontSize:11,marginTop:4}}>ต้องเป็น Super Admin เท่านั้น</div>
+              </div>
+        )}
         {view==="create"   &&editMemo&&<CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"} onOpenSigZones={()=>setShowSigZones(true)}/>}
         {view==="detail"   &&selMemo&&<DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplates={pdfTemplates} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal}/>}
       </div>
