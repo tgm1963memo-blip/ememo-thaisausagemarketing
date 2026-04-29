@@ -213,7 +213,7 @@ function printSystemPDF(memo, users) {
   let html = '<div style="width:210mm;min-height:297mm;margin:0 auto;padding:20mm 22mm;box-sizing:border-box;font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;">';
   html += '<div style="border-bottom:2px solid #D4AF37;padding-bottom:12px;margin-bottom:20px;display:flex;align-items:center;gap:16px;">';
   // Logo ซ้าย
-  html += '<img src="'+LOGO_URL+'" onerror="this.style.display='none'" style="height:52px;width:auto;object-fit:contain;flex-shrink:0;"/>';
+  html += '<img src="'+LOGO_URL+'" style="height:52px;width:auto;object-fit:contain;flex-shrink:0;display:block;"/>';
   // ชื่อบริษัทและหัวเรื่อง
   html += '<div style="flex:1;">';
   html += '<div style="font-size:13px;font-weight:700;color:#1A2F6B;">'+COMPANY+'</div>';
