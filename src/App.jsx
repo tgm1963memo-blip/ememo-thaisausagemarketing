@@ -1661,7 +1661,26 @@ export default function EMemo() {
     return (lv?.approvers||[]).some(ap=>(ap.userId&&ap.userId===curUser.id)||(ap.email&&ap.email===curUser.email)&&ap.status==="pending");
   });
   const myMemos = memoList.filter(m=>m.createdBy===curUser.id);
-  const selMemo = memoList.find(m=>m.id===selId);
+
+  // ── Dept-based visibility ──────────────────────────────────────────────────
+  // superadmin: เห็นทุก Memo / admin: แผนกตัวเอง + assigned / user: ของตัวเอง + assigned
+  const visibleMemos = (() => {
+    if (curUser.role === "superadmin") return memoList;
+    return memoList.filter(m => {
+      if (m.createdBy === curUser.id) return true;
+      const isApprover = (m.workflowLevels||[]).flatMap(lv=>lv.approvers||[])
+        .some(ap=>(ap.userId&&ap.userId===curUser.id)||(ap.email&&ap.email===curUser.email));
+      if (isApprover) return true;
+      if (curUser.role === "admin" && curUser.dept) {
+        const creator = users.find(u=>u.id===m.createdBy);
+        const memoDept = m.dept || creator?.dept;
+        if (memoDept && memoDept === curUser.dept) return true;
+      }
+      return false;
+    });
+  })();
+
+  const selMemo = visibleMemos.find(m=>m.id===selId);
 
   const openMemo    = id   => { setSelId(id); setView("detail"); pushHistory("detail", { selId:id }); };
   const startCreate = ()   => { setEditMemo({title:"",content:"",category:"ทั่วไป",workflowLevels:[],notify:{emailList:[],postToTeams:false,postToPowerAuto:false,postToLine:false},attachments:[]}); setView("create"); pushHistory("create"); };
@@ -1811,11 +1830,11 @@ export default function EMemo() {
 
       {/* Main */}
       <div style={{flex:1,overflowY:"auto",background:"#F9FAFB"}}>
-        {view==="dashboard"&&<Dashboard memoList={memoList} users={users} curUser={curUser} inboxCount={inbox.length} onOpen={openMemo}/>}
+        {view==="dashboard"&&<Dashboard memoList={visibleMemos} users={users} curUser={curUser} inboxCount={inbox.length} onOpen={openMemo}/>}
         {view==="inbox"    &&<MemoListView memoList={inbox}   users={users} title="กล่องขาเข้า" subtitle={`${inbox.length} รายการรอการอนุมัติ`} curUser={curUser} onOpen={openMemo} highlight/>}
         {view==="myMemos"  &&<MemoListView memoList={myMemos} users={users} title="Memo ของฉัน" curUser={curUser} onOpen={openMemo} onRecall={recallMemo} onEdit={startEdit}/>}
-        {view==="all"      &&can(curUser.role,"viewAll")&&<MemoListView memoList={memoList} users={users} title="Memo ทั้งหมด" curUser={curUser} onOpen={openMemo}/>}
-        {view==="search"   &&<SearchView memoList={curUser.role==="user"?memoList.filter(m=>m.createdBy===curUser.id||(m.workflowLevels||[]).flatMap(lv=>lv.approvers||[]).find(a=>a.userId===curUser.id||a.email===curUser.email)):memoList} users={users} curUser={curUser} onOpen={openMemo}/>}
+        {view==="all"      &&can(curUser.role,"viewAll")&&<MemoListView memoList={visibleMemos} users={users} title="Memo ทั้งหมด" curUser={curUser} onOpen={openMemo}/>}
+        {view==="search"   &&<SearchView memoList={visibleMemos} users={users} curUser={curUser} onOpen={openMemo}/>}
         {view==="users"    &&can(curUser.role,"manageUsers")&&<UsersMgmt users={users} curUser={curUser} showToast={showToast}/>}
         {view==="settings" &&(
           can(curUser.role,"settings")
