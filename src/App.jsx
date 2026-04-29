@@ -1377,3 +1377,363 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
     root.innerHTML=html;
     setTimeout(()=>{ window.print(); setTimeout(()=>{ root.innerHTML=""; setPrinting(false); },500); },200);
   };
+
+  const addZone  = () => setZones(p=>[...p,{id:"sz"+Date.now(),label:`จุดลงนาม ${p.length+1}`,x:10+(p.length%3)*30,y:70+Math.floor(p.length/3)*15,assignedTo:"",signerName:""}]);
+  const remZone  = i => setZones(p=>p.filter((_,j)=>j!==i));
+  const labelZone= (i,v) => setZones(p=>p.map((z,j)=>j===i?{...z,label:v}:z));
+  const assignZone=(i,uid)=>{ const u=users.find(x=>x.id===uid)||{}; setZones(p=>p.map((z,j)=>j===i?{...z,assignedTo:uid,signerName:u.name||""}:z)); };
+
+  useEffect(()=>{
+    if(!dragInfo)return;
+    const onMove=e=>{
+      const dx=((e.clientX-dragInfo.mx)/dragInfo.cw)*100;
+      const dy=((e.clientY-dragInfo.my)/dragInfo.ch)*100;
+      const nx=Math.max(0,Math.min(dragInfo.ox+dx,82));
+      const ny=Math.max(0,Math.min(dragInfo.oy+dy,90));
+      setZones(p=>p.map((z,j)=>j===dragInfo.idx?{...z,x:nx,y:ny}:z));
+    };
+    const onUp=()=>setDragInfo(null);
+    window.addEventListener("mousemove",onMove);
+    window.addEventListener("mouseup",onUp);
+    return()=>{ window.removeEventListener("mousemove",onMove); window.removeEventListener("mouseup",onUp); };
+  },[dragInfo]);
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",background:"rgba(0,0,0,.75)",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
+      {/* Left controls */}
+      <div style={{width:260,background:"#111",color:"#fff",display:"flex",flexDirection:"column",flexShrink:0}}>
+        <div style={{padding:"16px 16px 12px",borderBottom:"1px solid #222"}}>
+          <div style={{fontSize:13,fontWeight:600,color:GOLD}}>ตัวอย่างเอกสาร + PDF</div>
+          <div style={{fontSize:11,color:"#555",marginTop:2}}>ลากจุด ✍ บนเอกสารเพื่อย้ายตำแหน่ง</div>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:14}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#aaa",marginBottom:10,textTransform:"uppercase",letterSpacing:.5}}>จุดลงนาม</div>
+          {zones.map((z,i)=>(
+            <div key={z.id||i} style={{background:"#1a1a1a",border:"1px solid #333",borderRadius:7,padding:10,marginBottom:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:7}}>
+                <span style={{fontSize:11,color:GOLD,fontWeight:600}}>✍ จุด {i+1}</span>
+                <button onClick={()=>remZone(i)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#666",padding:0,fontFamily:"inherit"}}>✕</button>
+              </div>
+              <div style={{marginBottom:6}}>
+                <div style={{fontSize:10,color:"#666",marginBottom:3}}>ชื่อตำแหน่ง</div>
+                <input value={z.label||""} onChange={e=>labelZone(i,e.target.value)} style={{width:"100%",background:"#222",border:"1px solid #333",borderRadius:5,color:"#fff",fontSize:11,padding:"5px 8px",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:"#666",marginBottom:3}}>มอบหมายให้</div>
+                <select value={z.assignedTo||""} onChange={e=>assignZone(i,e.target.value)} style={{width:"100%",background:"#222",border:"1px solid #333",borderRadius:5,color:"#fff",fontSize:11,padding:"5px 8px",fontFamily:"inherit"}}>
+                  <option value="">-- เลือกผู้ลงนาม --</option>
+                  {users.filter(u=>u.active).map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
+            </div>
+          ))}
+          <button onClick={addZone} style={{width:"100%",padding:"8px",background:"transparent",border:`1px dashed ${GOLD}`,borderRadius:6,color:GOLD,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>+ เพิ่มจุดลงนาม</button>
+        </div>
+        <div style={{padding:14,borderTop:"1px solid #222",display:"flex",flexDirection:"column",gap:8}}>
+          <button onClick={handlePrint} disabled={printing} style={{width:"100%",padding:"10px",background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:printing?"not-allowed":"pointer",fontFamily:"inherit",opacity:printing?.7:1}}>
+            {printing?"กำลังเตรียม...":"🖨️ โหลด / พิมพ์ PDF"}
+          </button>
+          <button onClick={()=>onSaveZones(zones)} style={{width:"100%",padding:"10px",background:"#1D4ED8",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+            💾 บันทึกจุดลงนาม
+          </button>
+          <button onClick={onClose} style={{width:"100%",padding:"9px",background:"transparent",color:"#666",border:"1px solid #333",borderRadius:6,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+            ✕ ปิด
+          </button>
+        </div>
+      </div>
+      {/* A4 preview */}
+      <div style={{flex:1,overflowY:"auto",padding:"24px 32px",display:"flex",justifyContent:"center",alignItems:"flex-start"}}>
+        <div style={{width:"100%",maxWidth:720}}>
+          <div style={{fontSize:12,color:"#888",marginBottom:12}}>ตัวอย่างเอกสาร A4 — ลากจุด ✍ เพื่อย้ายตำแหน่ง</div>
+          <div ref={previewRef} style={{background:"#fff",borderRadius:4,boxShadow:"0 4px 40px rgba(0,0,0,.5)",padding:"32px 36px",position:"relative",minHeight:900,userSelect:"none"}}>
+            {zones.map((z,i)=>(
+              <div key={z.id||i} onMouseDown={e=>{
+                if(e.target.tagName==="INPUT"||e.target.tagName==="BUTTON"||e.target.tagName==="SELECT")return;
+                e.preventDefault();
+                const rect=previewRef.current?.getBoundingClientRect();
+                if(!rect)return;
+                setDragInfo({idx:i,mx:e.clientX,my:e.clientY,ox:zones[i].x||0,oy:zones[i].y||0,cw:rect.width,ch:rect.height});
+              }}
+                style={{position:"absolute",left:`${z.x||10}%`,top:`${z.y||70}%`,width:160,border:`2px dashed ${GOLD}`,borderRadius:4,background:"rgba(212,175,55,.08)",padding:"4px 8px",cursor:"move",zIndex:10,boxSizing:"border-box"}}>
+                <div style={{fontSize:10,color:GOLD,fontWeight:600,marginBottom:2}}>✍ จุด {i+1} — {z.label||"ลงนาม"}</div>
+                {z.signerName&&<div style={{fontSize:9,color:"#6B7280"}}>@ {z.signerName}</div>}
+                <div style={{height:32,borderBottom:"1px solid #333",margin:"4px 0"}}/>
+              </div>
+            ))}
+            <div style={{textAlign:"center",borderBottom:`2px solid ${GOLD}`,paddingBottom:12,marginBottom:20}}>
+              <div style={{fontSize:14,fontWeight:700,color:"#111"}}>{COMPANY}</div>
+              <div style={{fontSize:20,fontWeight:700,marginTop:6}}>บันทึกข้อความ (Memo)</div>
+              {memo.docNo&&<div style={{fontSize:11,color:"#6B7280",marginTop:3}}>เลขที่ {memo.docNo}</div>}
+            </div>
+            <table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:12}}><tbody>
+              <tr><td style={{width:100,color:"#6B7280",paddingBottom:5}}>เรื่อง:</td><td style={{fontWeight:600,paddingBottom:5}}>{memo.title||<span style={{color:"#ccc"}}>ยังไม่ได้กรอก</span>}</td><td style={{width:80,color:"#6B7280",paddingBottom:5,textAlign:"right"}}>หมวดหมู่:</td><td style={{paddingBottom:5,textAlign:"right"}}>{memo.category||"-"}</td></tr>
+              <tr><td style={{color:"#6B7280"}}>ผู้สร้าง:</td><td>{creator.name||"-"} {creator.dept?`(${creator.dept})`:""}</td><td style={{color:"#6B7280",textAlign:"right"}}>วันที่:</td><td style={{textAlign:"right"}}>{fmtD(memo.createdAt||new Date().toISOString())}</td></tr>
+            </tbody></table>
+            <div style={{borderTop:"1px solid #E5E7EB",marginBottom:20}}/>
+            <div style={{fontSize:13,lineHeight:1.9,whiteSpace:"pre-wrap",color:"#374151",minHeight:120,marginBottom:28}}>
+              {memo.content||<span style={{color:"#ccc",fontStyle:"italic"}}>เนื้อหาจะแสดงที่นี่...</span>}
+            </div>
+            {zones.length===0&&<div style={{padding:16,background:"#F9FAFB",border:"1px dashed #E5E7EB",borderRadius:6,textAlign:"center",color:"#9CA3AF",fontSize:12}}>กด "+ เพิ่มจุดลงนาม" แล้วลากไปวางตำแหน่งที่ต้องการบนเอกสาร</div>}
+            {approvals.length>0&&(
+              <div style={{marginTop:32,borderTop:"1px solid #E5E7EB",paddingTop:16}}>
+                <div style={{fontSize:11,color:"#6B7280",marginBottom:10,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>ขั้นตอนการอนุมัติ</div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}><thead>
+                  <tr style={{background:"#F9FAFB"}}>{["ผู้อนุมัติ","สถานะ","วันที่","ลายเซ็น/ความคิดเห็น"].map(h=><th key={h} style={{textAlign:"left",padding:"6px 10px",border:"1px solid #E5E7EB",fontWeight:600,color:"#6B7280"}}>{h}</th>)}</tr>
+                </thead><tbody>
+                  {approvals.map((ap,i)=>{
+                    const u=users.find(x=>x.id===ap.userId)||{};
+                    const sc=ap.status==="approved"?{c:"#065F46",l:"✓ อนุมัติ"}:ap.status==="rejected"?{c:"#991B1B",l:"✗ ปฏิเสธ"}:{c:"#B45309",l:"○ รอ"};
+                    const sigImg=ap.signature||u.signature||null;
+                    return <tr key={i}>
+                      <td style={{padding:"6px 10px",border:"1px solid #E5E7EB"}}>{ap.name||u.name||ap.email||"-"}</td>
+                      <td style={{padding:"6px 10px",border:"1px solid #E5E7EB",color:sc.c,fontWeight:500}}>{sc.l}</td>
+                      <td style={{padding:"6px 10px",border:"1px solid #E5E7EB",color:"#6B7280"}}>{ap.actionAt?fmtD(ap.actionAt):"-"}</td>
+                      <td style={{padding:"6px 10px",border:"1px solid #E5E7EB"}}>
+                        {sigImg&&<img src={sigImg} alt="sig" style={{height:32,display:"block",marginBottom:2,border:"1px solid #E5E7EB",borderRadius:3,background:"#fff",padding:2}}/>}
+                        <span style={{fontSize:11,color:"#6B7280"}}>{ap.comment||""}</span>
+                      </td>
+                    </tr>;
+                  })}
+                </tbody></table>
+              </div>
+            )}
+            <div style={{marginTop:48,borderTop:"1px solid #F3F4F6",paddingTop:8,display:"flex",justifyContent:"space-between",fontSize:10,color:"#9CA3AF"}}>
+              <span>{COMPANY}</span><span>พิมพ์เมื่อ {fmtD(new Date().toISOString())}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Error Boundary ────────────────────────────────────────────────────────────
+class ErrorBoundary extends React.Component {
+  constructor(props){ super(props); this.state={error:null}; }
+  static getDerivedStateFromError(e){ return {error:e}; }
+  componentDidCatch(e,info){ console.error("[E-Memo Error]",e,info); }
+  render(){
+    if(this.state.error){
+      return (
+        <div style={{padding:32,textAlign:"center",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
+          <div style={{fontSize:32,marginBottom:12}}>⚠️</div>
+          <div style={{fontSize:15,fontWeight:600,color:"#991B1B",marginBottom:8}}>เกิดข้อผิดพลาด</div>
+          <div style={{fontSize:12,color:"#6B7280",marginBottom:20,maxWidth:400,margin:"0 auto 20px"}}>{this.state.error.message}</div>
+          <button onClick={()=>this.setState({error:null})}
+            style={{padding:"9px 20px",background:"#D4AF37",color:"#111",border:"none",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            ลองใหม่
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+export default function EMemo() {
+  const [authUser,      setAuthUser]      = useState(undefined);
+  const [data,          setData]          = useState(null);
+  const [view,          setView]          = useState("dashboard");
+  const [selId,         setSelId]         = useState(null);
+  const [editMemo,      setEditMemo]      = useState(null);
+  const [modal,         setModal]         = useState(null);
+  const [toast,         setToast]         = useState(null);
+  const [syncing,       setSyncing]       = useState(false);
+  const [showTplManager,setShowTplManager]= useState(false);
+  const [showProfile,   setShowProfile]   = useState(false);   // [1]
+  const [showSigZones,  setShowSigZones]  = useState(false);   // [2]
+
+  useEffect(()=>{ const u=onAuthStateChanged(auth,u=>setAuthUser(u||null)); return()=>u(); },[]);
+  useEffect(()=>{ if(!authUser)return; const u=onValue(ref(db,DATA_PATH),snap=>setData(snap.val()||{users:{},memos:{},notifyConfig:{}})); return()=>u(); },[authUser]);
+
+  const showToast=(msg,type="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3200); };
+
+  if (authUser===undefined) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:BLACK,fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}><div style={{textAlign:"center"}}><div style={{width:40,height:40,background:GOLD,borderRadius:10,margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:BLACK,fontWeight:700}}>E</div><div style={{color:"#666",fontSize:13}}>กำลังโหลด...</div></div></div>;
+  if (!authUser) return <Login/>;
+  if (!data) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F9FAFB",fontSize:13,color:"#6B7280",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>กำลังโหลดข้อมูล...</div>;
+
+  const users        = Object.values(data.users    ||{});
+  const memoList     = Object.values(data.memos    ||{});
+  const notifyConfig = data.notifyConfig||{email:{},teams:{},powerauto:{},line:{}};
+  const pdfTemplates = data.pdfTemplates ||{};
+  const docCounters  = data.docCounters  ||{};
+
+  const curUser = users.find(u=>u.email===authUser.email) || {
+    id:authUser.uid, name:authUser.displayName||authUser.email,
+    role:"user", dept:"-", email:authUser.email, active:true
+  };
+
+  // [3][7] inbox: find memos where curUser is an approver in the active level
+  const inbox = memoList.filter(m=>{
+    if(m.status!=="pending") return false;
+    const lv=getActiveLevel(m);
+    return (lv?.approvers||[]).some(ap=>(ap.userId&&ap.userId===curUser.id)||(ap.email&&ap.email===curUser.email)&&ap.status==="pending");
+  });
+  const myMemos = memoList.filter(m=>m.createdBy===curUser.id);
+  const selMemo = memoList.find(m=>m.id===selId);
+
+  // ── Browser back/forward navigation ─────────────────────────────────────
+  useEffect(() => {
+    const onPop = (e) => {
+      const state = e.state;
+      if (state?.view) { setView(state.view); setSelId(state.selId||null); setEditMemo(null); }
+      else { setView("dashboard"); setSelId(null); }
+    };
+    window.addEventListener("popstate", onPop);
+    window.history.replaceState({ view:"dashboard" }, "", window.location.pathname);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const pushHistory = (view, extra={}) => window.history.pushState({ view, ...extra }, "", window.location.pathname);
+
+  const openMemo    = id   => { setSelId(id); setView("detail"); pushHistory("detail", { selId:id }); };
+  const startCreate = ()   => { setEditMemo({title:"",content:"",category:"ทั่วไป",workflowLevels:[],notify:{emailList:[],postToTeams:false,postToPowerAuto:false,postToLine:false},attachments:[]}); setView("create"); pushHistory("create"); };
+  const startEdit   = memo => { setEditMemo({...memo,workflowLevels:(memo.workflowLevels||[]).map(lv=>({...lv,approvers:(lv.approvers||[]).map(a=>({...a}))})),attachments:[...(memo.attachments||[])],notify:{...memo.notify,emailList:[...(memo.notify?.emailList||[])]}}); setView("create"); pushHistory("create"); };
+
+  const submitMemo = async (isDraft) => {
+    if(!editMemo.title?.trim()){showToast("กรุณากรอกชื่อเรื่อง","error");return;}
+    if(!isDraft&&!(editMemo.workflowLevels||[]).length){showToast("กรุณาเพิ่มลำดับการอนุมัติอย่างน้อย 1 ลำดับ","error");return;}
+    if(!isDraft&&(editMemo.workflowLevels||[]).some(lv=>!(lv.approvers||[]).length)){showToast("ทุกลำดับต้องมีผู้อนุมัติ","error");return;}
+    setSyncing(true);
+    const now=new Date().toISOString(); const isNew=!editMemo.id; const old=isNew?null:memoList.find(m=>m.id===editMemo.id);
+    const levels=(editMemo.workflowLevels||[]).map((lv,i)=>({...lv,level:i+1,approvers:(lv.approvers||[]).map(ap=>({...ap,status:isDraft?ap.status:"pending",comment:"",actionAt:null}))}));
+    const payload={...editMemo,id:editMemo.id||undefined,createdBy:old?.createdBy||curUser.id,createdAt:old?.createdAt||now,updatedAt:now,
+      status:isDraft?"draft":"pending",currentLevel:0,workflowLevels:levels,
+      history:[...(old?.history||[]),...(!old?[{action:"created",by:curUser.id,at:now,comment:""}]:[]),
+        ...(isDraft?[{action:"edited",by:curUser.id,at:now,comment:""}]:[{action:old?"resubmitted":"submitted",by:curUser.id,at:now,comment:"ส่งเพื่อขออนุมัติ"}])]};
+    try {
+      await writeMemo(payload,isNew);
+      // [6] Send email to level 1 approvers when submitting
+      if(!isDraft&&levels.length) await sendApproverEmail(notifyConfig,payload,levels[0],users);
+    } finally { setSyncing(false); }
+    setEditMemo(null); showToast(isDraft?"บันทึกร่างแล้ว":"ส่ง Memo เพื่ออนุมัติแล้ว"); setView("myMemos");
+  };
+
+  const recallMemo = async memo => {
+    const now=new Date().toISOString();
+    await patchMemo(memo.id,{status:"recalled",history:[...(memo.history||[]),{action:"recalled",by:curUser.id,at:now,comment:"เรียกคืน Memo"}]});
+    showToast("เรียกคืน Memo แล้ว");
+  };
+
+  // [3] Level-based approval ─────────────────────────────────────────────────
+  const approveMemo = async (memo, comment) => {
+    const now     = new Date().toISOString();
+    const lvIdx   = memo.currentLevel||0;
+    const levels  = (memo.workflowLevels||[]).map((lv,li)=>{
+      if(li!==lvIdx) return lv;
+      return {...lv, approvers:(lv.approvers||[]).map(ap=>{
+        const matchUser  = ap.userId&&ap.userId===curUser.id;
+        const matchEmail = ap.email&&ap.email===curUser.email;
+        if((matchUser||matchEmail)&&ap.status==="pending")
+          return {...ap, status:"approved", comment, actionAt:now, signature:curUser.signature||null};
+        return ap;
+      })};
+    });
+    const curLevel  = levels[lvIdx];
+    const lvDone    = isLevelDone(curLevel);
+    const nextLevel = lvIdx+1;
+    const allDone   = lvDone && nextLevel>=levels.length;
+    const newStatus = allDone?"approved":"pending";
+    const newLvIdx  = lvDone&&!allDone ? nextLevel : lvIdx;
+    const patch     = { workflowLevels:levels, currentLevel:newLvIdx, status:newStatus,
+      history:[...(memo.history||[]),{action:"approved",by:curUser.id,at:now,comment}] };
+    if(allDone&&!memo.docNo){ const docNo=await assignDocNo(memo,users,docCounters); patch.docNo=docNo; }
+    await patchMemo(memo.id,patch);
+    setModal(null); setSelId(memo.id);
+    showToast(allDone?"✅ อนุมัติครบทุกลำดับ กำลังส่งแจ้งเตือน...":lvDone?"อนุมัติลำดับนี้แล้ว ส่งต่อลำดับถัดไป":"อนุมัติแล้ว รอผู้อนุมัติคนอื่นในลำดับเดียวกัน");
+    if(allDone) await sendApprovedNotifications(notifyConfig,{...memo,...patch},users);
+    // [6] email next level approvers
+    else if(lvDone&&levels[newLvIdx]) await sendApproverEmail(notifyConfig,{...memo,...patch},levels[newLvIdx],users);
+  };
+
+  const rejectMemo = async (memo, comment) => {
+    const now   = new Date().toISOString();
+    const lvIdx = memo.currentLevel||0;
+    const levels=(memo.workflowLevels||[]).map((lv,li)=>{
+      if(li!==lvIdx) return lv;
+      return {...lv,approvers:(lv.approvers||[]).map(ap=>{
+        const match=(ap.userId&&ap.userId===curUser.id)||(ap.email&&ap.email===curUser.email);
+        return match&&ap.status==="pending"?{...ap,status:"rejected",comment,actionAt:now}:ap;
+      })};
+    });
+    await patchMemo(memo.id,{workflowLevels:levels,status:"rejected",history:[...(memo.history||[]),{action:"rejected",by:curUser.id,at:now,comment}]});
+    setModal(null); showToast("ปฏิเสธ Memo แล้ว","error");
+  };
+
+  const addAtt=(memo,file)=>{const r=new FileReader();r.onload=async e=>{const att={id:newId("a"),name:file.name,size:file.size>1024*1024?(file.size/1024/1024).toFixed(1)+" MB":Math.round(file.size/1024)+" KB",type:file.name.split(".").pop().toLowerCase(),data:e.target.result};await patchMemo(memo.id,{attachments:[...(memo.attachments||[]),att]});showToast("แนบไฟล์แล้ว");};r.readAsDataURL(file);};
+  const remAtt=async(memo,id)=>patchMemo(memo.id,{attachments:(memo.attachments||[]).filter(a=>a.id!==id)});
+
+  // [2] Save signature zones
+  const saveSigZones = async (zones) => {
+    if(!editMemo?.id) return;
+    await patchMemo(editMemo.id,{signatureZones:zones});
+    setEditMemo(p=>({...p,signatureZones:zones}));
+    showToast("บันทึกจุดลงนามแล้ว");
+    setShowSigZones(false);
+  };
+
+  const NAV=[
+    {k:"dashboard",l:"ภาพรวม",     i:"⊞",roles:["superadmin","admin","user"]},
+    {k:"inbox",    l:"กล่องขาเข้า",i:"↓",badge:inbox.length||null,roles:["superadmin","admin","user"]},
+    {k:"myMemos",  l:"Memo ของฉัน",i:"◉",roles:["superadmin","admin","user"]},
+    {k:"all",      l:"ทั้งหมด",    i:"≡",roles:["superadmin","admin"]},
+    {k:"search",   l:"ค้นหา",      i:"⌕",roles:["superadmin","admin","user"]},
+    {k:"users",    l:"จัดการ User",i:"◎",roles:["superadmin"]},
+    {k:"settings", l:"ตั้งค่าระบบ",i:"⚙",roles:["superadmin"]},
+  ];
+
+  return (
+    <div style={{fontFamily:"'Noto Sans Thai','Sarabun',sans-serif",display:"flex",height:"100vh",overflow:"hidden"}}>
+      <Toast t={toast}/>
+      {syncing&&<div style={{position:"fixed",bottom:16,left:216,background:"#FFFBEB",color:"#B45309",border:"1px solid #FCD34D",borderRadius:6,padding:"4px 10px",fontSize:11,zIndex:100}}>⟳ กำลังบันทึก...</div>}
+      {modal&&<ActionModal modal={modal} onClose={()=>setModal(null)} onApprove={c=>approveMemo(modal.memo,c)} onReject={c=>rejectMemo(modal.memo,c)} curUser={curUser}/>}
+      {showProfile&&<ProfileModal curUser={curUser} onClose={()=>setShowProfile(false)} showToast={showToast}/>}
+      {showTplManager&&can(curUser.role,"settings")&&<DocxTemplateManager templates={pdfTemplates} onSave={async tpls=>{await writePdfTemplates(tpls);showToast("บันทึก Template แล้ว");setShowTplManager(false);}} onClose={()=>setShowTplManager(false)}/>}
+      {showSigZones&&editMemo&&<SignatureZonesModal memo={editMemo} users={users} curUser={curUser} onSave={saveSigZones} onClose={()=>setShowSigZones(false)}/>}
+
+      {/* Sidebar */}
+      <div style={{width:210,background:BLACK,color:"#fff",display:"flex",flexDirection:"column",flexShrink:0}}>
+        <div style={{padding:"16px 16px 12px",borderBottom:"1px solid #222"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:28,height:28,background:GOLD,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:BLACK,fontWeight:700,flexShrink:0}}>E</div>
+            <div><div style={{fontSize:12,fontWeight:600,color:GOLD,letterSpacing:.3}}>E-Memo System</div><div style={{fontSize:9,color:"#555",lineHeight:1.3,marginTop:1}}>ไทยซอสเซส มาร์เก็ตติ้ง</div></div>
+          </div>
+        </div>
+        <div style={{padding:"10px 10px 6px"}}><button onClick={startCreate} style={{...BTN_GOLD,width:"100%",padding:"9px",fontSize:12,borderRadius:6}}>+ สร้าง Memo ใหม่</button></div>
+        <nav style={{flex:1,padding:"4px 8px",overflowY:"auto"}}>
+          {NAV.filter(n=>n.roles.includes(curUser.role)).map(n=>(
+            <button key={n.k} onClick={()=>{ setView(n.k); pushHistory(n.k); }} style={{width:"100%",padding:"8px 10px",borderRadius:6,background:view===n.k?"#1e1e1e":"transparent",color:view===n.k?GOLD:"#888",border:"none",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,marginBottom:1,textAlign:"left"}}>
+              <span style={{fontSize:13,width:16,textAlign:"center"}}>{n.i}</span>
+              <span style={{flex:1}}>{n.l}</span>
+              {n.badge?<span style={{background:"#DC2626",color:"#fff",borderRadius:10,fontSize:10,padding:"1px 5px",fontWeight:600}}>{n.badge}</span>:null}
+            </button>
+          ))}
+        </nav>
+        <div style={{borderTop:"1px solid #222",padding:"10px 12px"}}>
+          {/* [1] Profile button */}
+          <button onClick={()=>setShowProfile(true)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,marginBottom:8,background:"transparent",border:"none",cursor:"pointer",padding:"2px 0"}}>
+            <Avatar userId={curUser.id} users={users.length?users:[curUser]} size={26}/>
+            <div style={{minWidth:0,textAlign:"left"}}>
+              <div style={{fontSize:11,fontWeight:500,color:"#ddd",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{curUser.name}</div>
+              <div style={{fontSize:10,color:GOLD}}>{curUser.signature?"✍ มีลายเซ็น":"คลิกตั้งลายเซ็น"}</div>
+            </div>
+          </button>
+          <button onClick={()=>signOut(auth)} style={{width:"100%",padding:"7px",background:"#1a1a1a",color:"#666",border:"1px solid #2a2a2a",borderRadius:6,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>ออกจากระบบ</button>
+        </div>
+      </div>
+
+      {/* Main */}
+      <div style={{flex:1,overflowY:"auto",background:"#F9FAFB"}}>
+        {view==="dashboard"&&<Dashboard memoList={memoList} users={users} curUser={curUser} inboxCount={inbox.length} onOpen={openMemo}/>}
+        {view==="inbox"    &&<MemoListView memoList={inbox}   users={users} title="กล่องขาเข้า" subtitle={`${inbox.length} รายการรอการอนุมัติ`} curUser={curUser} onOpen={openMemo} highlight/>}
+        {view==="myMemos"  &&<MemoListView memoList={myMemos} users={users} title="Memo ของฉัน" curUser={curUser} onOpen={openMemo} onRecall={recallMemo} onEdit={startEdit}/>}
+        {view==="all"      &&can(curUser.role,"viewAll")&&<MemoListView memoList={memoList} users={users} title="Memo ทั้งหมด" curUser={curUser} onOpen={openMemo}/>}
+        {view==="search"   &&<SearchView memoList={curUser.role==="user"?memoList.filter(m=>m.createdBy===curUser.id||(m.workflowLevels||[]).flatMap(lv=>lv.approvers||[]).find(a=>a.userId===curUser.id||a.email===curUser.email)):memoList} users={users} curUser={curUser} onOpen={openMemo}/>}
+        {view==="users"    &&can(curUser.role,"manageUsers")&&<UsersMgmt users={users} curUser={curUser} showToast={showToast}/>}
+        {view==="settings" &&can(curUser.role,"settings")&&<SettingsView notifyConfig={notifyConfig} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)}/>}
+        {view==="create"   &&editMemo&&<CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"} onOpenSigZones={()=>setShowSigZones(true)}/>}
+        {view==="detail"   &&selMemo&&<DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplates={pdfTemplates} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal}/>}
+      </div>
+    </div>
+  );
+}
