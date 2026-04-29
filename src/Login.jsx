@@ -55,8 +55,8 @@ export default function Login() {
 
         {/* Logo — วางไฟล์ TGM-01-scaled.jpg ใน /public/ */}
         <img
-          src="https://yt3.googleusercontent.com/SIdLtm8x9fTt71iYyuOAEGHBIfiD0MN6fTy7S1BVCfXolc_3kMHmOcfDdLE-YgNK0Kn_33KeMA=s160-c-k-c0x00ffffff-no-rj"
-          alt="TGM Logo"
+          src="https://img1.pic.in.th/images/logo-tss-03.png"
+          alt="TSS Logo"
           style={S.logo}
           onError={e => { e.target.style.display = "none"; e.target.nextSibling.style.display = "flex"; }}
         />
