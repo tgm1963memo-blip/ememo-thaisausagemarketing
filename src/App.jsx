@@ -886,19 +886,25 @@ function WorkflowLevelBuilder({ levels, setLevels, users, curUser }) {
 
   const addApproverFromUser = (li) => {
     const uid=newUserId[li]; if(!uid) return;
+    if(uid === curUser.id){ alert("ไม่สามารถเพิ่มตัวเองเป็นผู้อนุมัติได้"); return; }
     const u=users.find(x=>x.id===uid)||{};
     setLevels(p=>p.map((lv,j)=>j!==li?lv:{...lv,approvers:[...(lv.approvers||[]),{userId:uid,email:u.email||"",name:u.name||"",status:"pending",comment:"",actionAt:null}]}));
     setNewUserId(p=>({...p,[li]:""}));
   };
   const addApproverFromEmail = (li) => {
-    const email=(newEmail[li]||"").trim(); if(!email||!email.includes("@")) return;
+    const email=(newEmail[li]||"").trim();
+    if(!email||!email.includes("@")) return;
+    // ห้ามผู้สร้างอนุมัติตัวเอง
+    if(email.toLowerCase() === curUser.email.toLowerCase()){
+      alert("ไม่สามารถเพิ่มตัวเองเป็นผู้อนุมัติได้"); return;
+    }
     const u=users.find(x=>x.email===email)||{};
     setLevels(p=>p.map((lv,j)=>j!==li?lv:{...lv,approvers:[...(lv.approvers||[]),{userId:u.id||null,email,name:u.name||email,status:"pending",comment:"",actionAt:null}]}));
     setNewEmail(p=>({...p,[li]:""}));
   };
   const remApprover = (li,ai) => setLevels(p=>p.map((lv,j)=>j!==li?lv:{...lv,approvers:(lv.approvers||[]).filter((_,k)=>k!==ai)}));
 
-  const avail = users.filter(u=>u.id!==curUser.id&&u.active);
+  const avail = users.filter(u => u.id !== curUser.id && u.active);
 
   return (
     <div>
@@ -1681,9 +1687,19 @@ export default function EMemo() {
   };
 
   const recallMemo = async memo => {
-    const now=new Date().toISOString();
-    await patchMemo(memo.id,{status:"recalled",history:[...(memo.history||[]),{action:"recalled",by:curUser.id,at:now,comment:"เรียกคืน Memo"}]});
-    showToast("เรียกคืน Memo แล้ว");
+    const now = new Date().toISOString();
+    // เรียกคืน: ล้างลายเซ็นและสถานะการอนุมัติทั้งหมด
+    const clearedLevels = (memo.workflowLevels||[]).map(lv => ({
+      ...lv,
+      approvers: (lv.approvers||[]).map(ap => ({
+        ...ap, status:"pending", comment:"", actionAt:null, signature:null,
+      })),
+    }));
+    await patchMemo(memo.id, {
+      status:"recalled", currentLevel:0, workflowLevels:clearedLevels,
+      history:[...(memo.history||[]),{action:"recalled",by:curUser.id,at:now,comment:"เรียกคืน Memo"}],
+    });
+    showToast("เรียกคืน Memo แล้ว — ลายเซ็นถูกล้างแล้ว");
   };
 
   // [3] Level-based approval ─────────────────────────────────────────────────
