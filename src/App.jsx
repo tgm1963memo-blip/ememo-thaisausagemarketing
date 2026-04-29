@@ -1504,11 +1504,25 @@ export default function EMemo() {
   useEffect(()=>{ const u=onAuthStateChanged(auth,u=>setAuthUser(u||null)); return()=>u(); },[]);
   useEffect(()=>{ if(!authUser)return; const u=onValue(ref(db,DATA_PATH),snap=>setData(snap.val()||{users:{},memos:{},notifyConfig:{}})); return()=>u(); },[authUser]);
 
+  // ── History API (must be before early returns — Rules of Hooks) ──────────
+  useEffect(() => {
+    const onPop = (e) => {
+      const s = e.state;
+      if (s?.view) { setView(s.view); setSelId(s.selId||null); setEditMemo(null); }
+      else { setView("dashboard"); setSelId(null); }
+    };
+    window.addEventListener("popstate", onPop);
+    window.history.replaceState({ view:"dashboard" }, "", window.location.pathname);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   const showToast=(msg,type="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3200); };
 
   if (authUser===undefined) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:BLACK,fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}><div style={{textAlign:"center"}}><div style={{width:40,height:40,background:GOLD,borderRadius:10,margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:BLACK,fontWeight:700}}>E</div><div style={{color:"#666",fontSize:13}}>กำลังโหลด...</div></div></div>;
   if (!authUser) return <Login/>;
   if (!data) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F9FAFB",fontSize:13,color:"#6B7280",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>กำลังโหลดข้อมูล...</div>;
+
+  const pushHistory = (v, extra={}) => window.history.pushState({ view:v, ...extra }, "", window.location.pathname);
 
   const users        = Object.values(data.users    ||{});
   const memoList     = Object.values(data.memos    ||{});
@@ -1529,19 +1543,6 @@ export default function EMemo() {
   });
   const myMemos = memoList.filter(m=>m.createdBy===curUser.id);
   const selMemo = memoList.find(m=>m.id===selId);
-
-  // ── Browser back/forward navigation ─────────────────────────────────────
-  useEffect(() => {
-    const onPop = (e) => {
-      const state = e.state;
-      if (state?.view) { setView(state.view); setSelId(state.selId||null); setEditMemo(null); }
-      else { setView("dashboard"); setSelId(null); }
-    };
-    window.addEventListener("popstate", onPop);
-    window.history.replaceState({ view:"dashboard" }, "", window.location.pathname);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
-  const pushHistory = (view, extra={}) => window.history.pushState({ view, ...extra }, "", window.location.pathname);
 
   const openMemo    = id   => { setSelId(id); setView("detail"); pushHistory("detail", { selId:id }); };
   const startCreate = ()   => { setEditMemo({title:"",content:"",category:"ทั่วไป",workflowLevels:[],notify:{emailList:[],postToTeams:false,postToPowerAuto:false,postToLine:false},attachments:[]}); setView("create"); pushHistory("create"); };
