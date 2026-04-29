@@ -3,5 +3,9 @@ cd C:\Users\TSS\OneDrive\เดสก์ท็อป\ememo-firebase
 npm run dev
 
 git add .
-git commit -m "reset password & preview pdf"
+git commit -m "add logo"
+git push origin main
+
+git add src/App.jsx vite.config.js
+git commit -m "fix: update App and vite config"
 git push origin main

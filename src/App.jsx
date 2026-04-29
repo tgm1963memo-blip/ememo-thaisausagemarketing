@@ -1802,7 +1802,7 @@ export default function EMemo() {
         <div style={{padding:"16px 16px 12px",borderBottom:"1px solid #222"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <img
-              src="https://yt3.googleusercontent.com/SIdLtm8x9fTt71iYyuOAEGHBIfiD0MN6fTy7S1BVCfXolc_3kMHmOcfDdLE-YgNK0Kn_33KeMA=s160-c-k-c0x00ffffff-no-rj"
+              src="https://www.jobthai.com/th/company/158692=s160-c-k-c0x00ffffff-no-rj"
               alt="TGM Logo"
               style={{width:28,height:28,borderRadius:6,objectFit:"cover",flexShrink:0,background:GOLD}}
               onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}
