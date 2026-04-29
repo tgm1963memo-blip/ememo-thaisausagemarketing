@@ -1563,8 +1563,8 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
             ))}
             <div style={{textAlign:"center",borderBottom:`2px solid ${GOLD}`,paddingBottom:12,marginBottom:20}}>
               <img
-                src="https://yt3.googleusercontent.com/SIdLtm8x9fTt71iYyuOAEGHBIfiD0MN6fTy7S1BVCfXolc_3kMHmOcfDdLE-YgNK0Kn_33KeMA=s300"
-                alt="Company Logo"
+                src="https://img1.pic.in.th/images/logo-tss-03.png"
+                alt="TSS Logo"
                 style={{height:50,display:"block",margin:"0 auto 8px",objectFit:"contain"}}
                 onError={e=>e.target.style.display="none"}
               />
