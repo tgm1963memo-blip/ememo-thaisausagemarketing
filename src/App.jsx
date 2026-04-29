@@ -1378,26 +1378,6 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
     setTimeout(()=>{ window.print(); setTimeout(()=>{ root.innerHTML=""; setPrinting(false); },500); },200);
   };
 
-  const addZone  = () => setZones(p=>[...p,{id:"sz"+Date.now(),label:`จุดลงนาม ${p.length+1}`,x:10+(p.length%3)*30,y:70+Math.floor(p.length/3)*15,assignedTo:"",signerName:""}]);
-  const remZone  = i => setZones(p=>p.filter((_,j)=>j!==i));
-  const labelZone= (i,v) => setZones(p=>p.map((z,j)=>j===i?{...z,label:v}:z));
-  const assignZone=(i,uid)=>{ const u=users.find(x=>x.id===uid)||{}; setZones(p=>p.map((z,j)=>j===i?{...z,assignedTo:uid,signerName:u.name||""}:z)); };
-
-  useEffect(()=>{
-    if(!dragInfo)return;
-    const onMove=e=>{
-      const dx=((e.clientX-dragInfo.mx)/dragInfo.cw)*100;
-      const dy=((e.clientY-dragInfo.my)/dragInfo.ch)*100;
-      const nx=Math.max(0,Math.min(dragInfo.ox+dx,82));
-      const ny=Math.max(0,Math.min(dragInfo.oy+dy,90));
-      setZones(p=>p.map((z,j)=>j===dragInfo.idx?{...z,x:nx,y:ny}:z));
-    };
-    const onUp=()=>setDragInfo(null);
-    window.addEventListener("mousemove",onMove);
-    window.addEventListener("mouseup",onUp);
-    return()=>{ window.removeEventListener("mousemove",onMove); window.removeEventListener("mouseup",onUp); };
-  },[dragInfo]);
-
   return (
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",background:"rgba(0,0,0,.75)",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
       {/* Left controls */}
@@ -1505,29 +1485,6 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
       </div>
     </div>
   );
-}
-
-// ── Error Boundary ────────────────────────────────────────────────────────────
-class ErrorBoundary extends React.Component {
-  constructor(props){ super(props); this.state={error:null}; }
-  static getDerivedStateFromError(e){ return {error:e}; }
-  componentDidCatch(e,info){ console.error("[E-Memo Error]",e,info); }
-  render(){
-    if(this.state.error){
-      return (
-        <div style={{padding:32,textAlign:"center",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
-          <div style={{fontSize:32,marginBottom:12}}>⚠️</div>
-          <div style={{fontSize:15,fontWeight:600,color:"#991B1B",marginBottom:8}}>เกิดข้อผิดพลาด</div>
-          <div style={{fontSize:12,color:"#6B7280",marginBottom:20,maxWidth:400,margin:"0 auto 20px"}}>{this.state.error.message}</div>
-          <button onClick={()=>this.setState({error:null})}
-            style={{padding:"9px 20px",background:"#D4AF37",color:"#111",border:"none",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer"}}>
-            ลองใหม่
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
 }
 
 // ── Main App ──────────────────────────────────────────────────────────────────
