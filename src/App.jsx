@@ -204,6 +204,7 @@ function printSystemPDF(memo, users) {
   }
   let html = '<div style="width:210mm;min-height:297mm;margin:0 auto;padding:20mm 22mm;box-sizing:border-box;font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;">';
   html += '<div style="text-align:center;border-bottom:2px solid #D4AF37;padding-bottom:12px;margin-bottom:20px;">';
+  html += '<img src="https://yt3.googleusercontent.com/SIdLtm8x9fTt71iYyuOAEGHBIfiD0MN6fTy7S1BVCfXolc_3kMHmOcfDdLE-YgNK0Kn_33KeMA=s160-c-k-c0x00ffffff-no-rj" style="height:48px;display:block;margin:0 auto 8px;object-fit:contain;" alt="logo"/>';
   html += '<div style="font-size:14px;font-weight:700;">'+COMPANY+'</div>';
   html += '<div style="font-size:20px;font-weight:700;margin-top:6px;">บันทึกข้อความ (Memo)</div>';
   if(memo.docNo) html += '<div style="font-size:11px;color:#6B7280;">เลขที่ '+memo.docNo+'</div>';
@@ -211,7 +212,7 @@ function printSystemPDF(memo, users) {
   html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;"><tbody>';
   html += '<tr><td style="width:90px;color:#6B7280;padding:3px 0;">เรื่อง:</td><td style="font-weight:600;">'+(memo.title||"")+'</td>';
   html += '<td style="width:80px;color:#6B7280;text-align:right;">หมวดหมู่:</td><td style="text-align:right;">'+(memo.category||"")+'</td></tr>';
-  html += '<tr><td style="color:#6B7280;padding:3px 0;">ผู้สร้าง:</td><td>'+(creator_name:creator.name)+(creator.dept?" ("+creator.dept+")":"")+'</td>';
+  html += '<tr><td style="color:#6B7280;padding:3px 0;">ผู้สร้าง:</td><td>'+(creator.name||"-")+(creator.dept?" ("+creator.dept+")":"")+'</td>';
   html += '<td style="color:#6B7280;text-align:right;">วันที่:</td><td style="text-align:right;">'+(memo.createdAt?fD(memo.createdAt):"")+'</td></tr>';
   if(memo.docNo) html += '<tr><td style="color:#6B7280;padding:3px 0;">เลขที่:</td><td colspan="3" style="font-family:monospace;font-weight:600;">'+memo.docNo+'</td></tr>';
   html += '</tbody></table>';
@@ -1436,6 +1437,7 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
     let html='<div style="width:210mm;min-height:297mm;margin:0 auto;padding:20mm 22mm;box-sizing:border-box;font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;position:relative;">';
     // Header
     html+='<div style="text-align:center;border-bottom:2px solid #D4AF37;padding-bottom:12px;margin-bottom:20px;">';
+    html+='<img src="https://yt3.googleusercontent.com/SIdLtm8x9fTt71iYyuOAEGHBIfiD0MN6fTy7S1BVCfXolc_3kMHmOcfDdLE-YgNK0Kn_33KeMA=s160-c-k-c0x00ffffff-no-rj" style="height:48px;display:block;margin:0 auto 8px;object-fit:contain;" alt="logo"/>';
     html+='<div style="font-size:14px;font-weight:700;">'+C+'</div>';
     html+='<div style="font-size:20px;font-weight:700;margin-top:6px;">บันทึกข้อความ (Memo)</div>';
     if(memo.docNo) html+='<div style="font-size:11px;color:#6B7280;">เลขที่ '+memo.docNo+'</div>';
@@ -1560,18 +1562,28 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
               </div>
             ))}
             <div style={{textAlign:"center",borderBottom:`2px solid ${GOLD}`,paddingBottom:12,marginBottom:20}}>
-        <img 
-                  src="https://yt3.googleusercontent.com/SIdLtm8x9fTt71iYyuOAEGHBIfiD0MN6fTy7S1BVCfXolc_3kMHmOcfDdLE-YgNK0Kn_33KeMA=s300"
-                  alt="Company Logo"
-                  style="height:50px; display:block;"
-                />      
-	<div style={{fontSize:14,fontWeight:700,color:"#111"}}>{COMPANY}</div>
+              <img
+                src="https://yt3.googleusercontent.com/SIdLtm8x9fTt71iYyuOAEGHBIfiD0MN6fTy7S1BVCfXolc_3kMHmOcfDdLE-YgNK0Kn_33KeMA=s300"
+                alt="Company Logo"
+                style={{height:50,display:"block",margin:"0 auto 8px",objectFit:"contain"}}
+                onError={e=>e.target.style.display="none"}
+              />
+              <div style={{fontSize:14,fontWeight:700,color:"#111"}}>{COMPANY}</div>
               <div style={{fontSize:20,fontWeight:700,marginTop:6}}>บันทึกข้อความ (Memo)</div>
               {memo.docNo&&<div style={{fontSize:11,color:"#6B7280",marginTop:3}}>เลขที่ {memo.docNo}</div>}
             </div>
             <table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:12}}><tbody>
               <tr><td style={{width:100,color:"#6B7280",paddingBottom:5}}>เรื่อง:</td><td style={{fontWeight:600,paddingBottom:5}}>{memo.title||<span style={{color:"#ccc"}}>ยังไม่ได้กรอก</span>}</td><td style={{width:80,color:"#6B7280",paddingBottom:5,textAlign:"right"}}>หมวดหมู่:</td><td style={{paddingBottom:5,textAlign:"right"}}>{memo.category||"-"}</td></tr>
-              <tr><td style={{color:"#6B7280"}}>ผู้สร้าง:</td><td>{creator.name||""} {creator.dept?`(${creator.dept})`:""}</td><td style={{color:"#6B7280",textAlign:"right"}}>วันที่:</td><td style={{textAlign:"right"}}>{fmtD(memo.createdAt||new Date().toISOString())}</td></tr>
+              <tr>
+                <td style={{color:"#6B7280"}}>ผู้สร้าง:</td>
+                <td style={{fontWeight:500}}>
+                  {creator.name
+                    ? <>{creator.name}{creator.dept ? <span style={{color:"#9CA3AF",fontWeight:400}}> ({creator.dept})</span> : null}</>
+                    : <span style={{color:"#ccc"}}>ไม่พบข้อมูล</span>}
+                </td>
+                <td style={{color:"#6B7280",textAlign:"right"}}>วันที่:</td>
+                <td style={{textAlign:"right"}}>{fmtD(memo.createdAt||new Date().toISOString())}</td>
+              </tr>
             </tbody></table>
             <div style={{borderTop:"1px solid #E5E7EB",marginBottom:20}}/>
             <div style={{fontSize:13,lineHeight:1.9,whiteSpace:"pre-wrap",color:"#374151",minHeight:120,marginBottom:28}}>
