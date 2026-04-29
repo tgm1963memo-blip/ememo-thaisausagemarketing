@@ -211,7 +211,7 @@ function printSystemPDF(memo, users) {
   html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;"><tbody>';
   html += '<tr><td style="width:90px;color:#6B7280;padding:3px 0;">เรื่อง:</td><td style="font-weight:600;">'+(memo.title||"")+'</td>';
   html += '<td style="width:80px;color:#6B7280;text-align:right;">หมวดหมู่:</td><td style="text-align:right;">'+(memo.category||"")+'</td></tr>';
-  html += '<tr><td style="color:#6B7280;padding:3px 0;">ผู้สร้าง:</td><td>'+(creator.name||"")+(creator.dept?" ("+creator.dept+")":"")+'</td>';
+  html += '<tr><td style="color:#6B7280;padding:3px 0;">ผู้สร้าง:</td><td>'+(creator_name:creator.name)+(creator.dept?" ("+creator.dept+")":"")+'</td>';
   html += '<td style="color:#6B7280;text-align:right;">วันที่:</td><td style="text-align:right;">'+(memo.createdAt?fD(memo.createdAt):"")+'</td></tr>';
   if(memo.docNo) html += '<tr><td style="color:#6B7280;padding:3px 0;">เลขที่:</td><td colspan="3" style="font-family:monospace;font-weight:600;">'+memo.docNo+'</td></tr>';
   html += '</tbody></table>';
@@ -1571,7 +1571,7 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
             </div>
             <table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:12}}><tbody>
               <tr><td style={{width:100,color:"#6B7280",paddingBottom:5}}>เรื่อง:</td><td style={{fontWeight:600,paddingBottom:5}}>{memo.title||<span style={{color:"#ccc"}}>ยังไม่ได้กรอก</span>}</td><td style={{width:80,color:"#6B7280",paddingBottom:5,textAlign:"right"}}>หมวดหมู่:</td><td style={{paddingBottom:5,textAlign:"right"}}>{memo.category||"-"}</td></tr>
-              <tr><td style={{color:"#6B7280"}}>ผู้สร้าง:</td><td>{creator.name||{{creator_name}}} {creator.dept?`(${creator.dept})`:""}</td><td style={{color:"#6B7280",textAlign:"right"}}>วันที่:</td><td style={{textAlign:"right"}}>{fmtD(memo.createdAt||new Date().toISOString())}</td></tr>
+              <tr><td style={{color:"#6B7280"}}>ผู้สร้าง:</td><td>{creator.name||""} {creator.dept?`(${creator.dept})`:""}</td><td style={{color:"#6B7280",textAlign:"right"}}>วันที่:</td><td style={{textAlign:"right"}}>{fmtD(memo.createdAt||new Date().toISOString())}</td></tr>
             </tbody></table>
             <div style={{borderTop:"1px solid #E5E7EB",marginBottom:20}}/>
             <div style={{fontSize:13,lineHeight:1.9,whiteSpace:"pre-wrap",color:"#374151",minHeight:120,marginBottom:28}}>
