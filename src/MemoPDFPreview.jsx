@@ -2,7 +2,8 @@
 // Document preview with draggable signature zones + PDF export via browser print
 import { useState, useRef, useCallback, useEffect } from "react";
 
-const GOLD = "#D4AF37";
+const GOLD  = "#D4AF37";
+const BLACK = "#111111";
 const COMPANY = "บริษัท ไทยซอสเซส มาร์เก็ตติ้ง จำกัด";
 
 // Inject print CSS once

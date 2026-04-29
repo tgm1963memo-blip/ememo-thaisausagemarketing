@@ -1130,8 +1130,15 @@ function UsersMgmt({ users, curUser, showToast }) {
 }
 
 function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
-  const [cfg,setCfg]=useState(JSON.parse(JSON.stringify(notifyConfig)));
-  const setC=(ch,k,v)=>setCfg(p=>({...p,[ch]:{...p[ch],[k]:v}}));
+  // Normalize: Firebase may return null for keys that have never been set
+  const safeConfig = {
+    email:     { ...(notifyConfig?.email     || {}) },
+    teams:     { ...(notifyConfig?.teams     || {}) },
+    powerauto: { ...(notifyConfig?.powerauto || {}) },
+    line:      { ...(notifyConfig?.line      || {}) },
+  };
+  const [cfg,setCfg]=useState(safeConfig);
+  const setC=(ch,k,v)=>setCfg(p=>({...p,[ch]:{...(p[ch]||{}),[k]:v}}));
   const save=async()=>{await writeNotifyConfig(cfg);showToast("บันทึกการตั้งค่าแล้ว");};
   const channels=[
     {id:"email",icon:"✉",label:"อีเมล์ (EmailJS)",color:"#1E40AF",
@@ -1152,27 +1159,30 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
       <div style={{fontSize:18,fontWeight:600,color:"#111",marginBottom:4}}>ตั้งค่าการแจ้งเตือน</div>
       <div style={{fontSize:13,color:"#6B7280",marginBottom:20}}>เปิดช่องทางที่ต้องการ — ส่งอัตโนมัติเมื่อ Memo อนุมัติครบและแจ้งผู้อนุมัติเมื่อถึงคิว</div>
       <div style={{background:"#EEEDFE",border:"1px solid #AFA9EC",borderRadius:10,padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <div><div style={{fontSize:13,fontWeight:600,color:"#3C3489"}}>📄 Template เอกสาร (.docx)</div><div style={{fontSize:11,color:"#6B7280",marginTop:1}}>รองรับ Placeholder + จุดลงนาม {{sigZone_N}}</div></div>
+        <div><div style={{fontSize:13,fontWeight:600,color:"#3C3489"}}>📄 Template เอกสาร (.docx)</div><div style={{fontSize:11,color:"#6B7280",marginTop:1}}>รองรับ Placeholder + จุดลงนาม {"{{sigZone_N}}"}</div></div>
         <button onClick={onOpenPdfTemplate} style={{padding:"7px 16px",background:"#3C3489",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>จัดการ Template</button>
       </div>
-      {channels.map(ch=>(
-        <div key={ch.id} style={{background:"#fff",border:`1px solid ${cfg[ch.id]?.enabled?"#E5E7EB":"#F3F4F6"}`,borderRadius:10,marginBottom:12,overflow:"hidden"}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",background:cfg[ch.id]?.enabled?"#F9FAFB":"transparent"}} onClick={()=>setC(ch.id,"enabled",!cfg[ch.id]?.enabled)}>
+      {channels.map(ch=>{
+        const chCfg = cfg[ch.id] || {};
+        return (
+        <div key={ch.id} style={{background:"#fff",border:`1px solid ${chCfg.enabled?"#E5E7EB":"#F3F4F6"}`,borderRadius:10,marginBottom:12,overflow:"hidden"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",background:chCfg.enabled?"#F9FAFB":"transparent"}} onClick={()=>setC(ch.id,"enabled",!chCfg.enabled)}>
             <span style={{fontSize:20}}>{ch.icon}</span>
-            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500,color:"#111"}}>{ch.label}</div><div style={{fontSize:11,color:"#9CA3AF"}}>{cfg[ch.id]?.enabled?"เปิดใช้งาน":"คลิกเพื่อเปิด"}</div></div>
-            <Toggle value={cfg[ch.id]?.enabled||false} onChange={v=>setC(ch.id,"enabled",v)}/>
+            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500,color:"#111"}}>{ch.label}</div><div style={{fontSize:11,color:"#9CA3AF"}}>{chCfg.enabled?"เปิดใช้งาน":"คลิกเพื่อเปิด"}</div></div>
+            <Toggle value={chCfg.enabled||false} onChange={v=>setC(ch.id,"enabled",v)}/>
           </div>
-          {cfg[ch.id]?.enabled&&<div style={{padding:"14px 16px",borderTop:"1px solid #F3F4F6"}}>
+          {chCfg.enabled&&<div style={{padding:"14px 16px",borderTop:"1px solid #F3F4F6"}}>
             <div style={{padding:"10px 12px",background:ch.color+"11",border:`1px solid ${ch.color}33`,borderRadius:6,marginBottom:12}}>
               <div style={{fontSize:11,fontWeight:600,color:ch.color,marginBottom:4}}>วิธีตั้งค่า</div>
               {ch.guide.map((g,i)=><div key={i} style={{fontSize:11,color:"#6B7280",padding:"1px 0"}}>{i+1}. {g}</div>)}
             </div>
             <div style={{display:"grid",gridTemplateColumns:ch.fields.length>1?"1fr 1fr":"1fr",gap:8}}>
-              {ch.fields.map(f=><Field key={f.k} label={f.label}><input value={cfg[ch.id][f.k]||""} onChange={e=>setC(ch.id,f.k,e.target.value)} placeholder={f.ph} style={IS}/></Field>)}
+              {ch.fields.map(f=><Field key={f.k} label={f.label}><input value={chCfg[f.k]||""} onChange={e=>setC(ch.id,f.k,e.target.value)} placeholder={f.ph} style={IS}/></Field>)}
             </div>
           </div>}
         </div>
-      ))}
+        );
+      })}
       <button onClick={save} style={BTN_GOLD}>บันทึกการตั้งค่า</button>
     </div>
   );
