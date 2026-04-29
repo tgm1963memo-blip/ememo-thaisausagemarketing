@@ -1801,7 +1801,13 @@ export default function EMemo() {
       <div style={{width:210,background:BLACK,color:"#fff",display:"flex",flexDirection:"column",flexShrink:0}}>
         <div style={{padding:"16px 16px 12px",borderBottom:"1px solid #222"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:28,height:28,background:GOLD,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:BLACK,fontWeight:700,flexShrink:0}}>E</div>
+            <img
+              src="https://yt3.googleusercontent.com/SIdLtm8x9fTt71iYyuOAEGHBIfiD0MN6fTy7S1BVCfXolc_3kMHmOcfDdLE-YgNK0Kn_33KeMA=s160-c-k-c0x00ffffff-no-rj"
+              alt="TGM Logo"
+              style={{width:28,height:28,borderRadius:6,objectFit:"cover",flexShrink:0,background:GOLD}}
+              onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}
+            />
+            <div style={{width:28,height:28,background:GOLD,borderRadius:6,display:"none",alignItems:"center",justifyContent:"center",fontSize:14,color:BLACK,fontWeight:700,flexShrink:0}}>E</div>
             <div><div style={{fontSize:12,fontWeight:600,color:GOLD,letterSpacing:.3}}>E-Memo System</div><div style={{fontSize:9,color:"#555",lineHeight:1.3,marginTop:1}}>ไทยซอสเซส มาร์เก็ตติ้ง</div></div>
           </div>
         </div>
