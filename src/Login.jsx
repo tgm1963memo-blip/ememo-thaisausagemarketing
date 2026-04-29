@@ -2,6 +2,8 @@ import { useState } from "react";
 import { auth } from "./firebase";
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 
+const GOLD = "#D4AF37";
+
 export default function Login() {
   const [email,        setEmail]        = useState("");
   const [password,     setPassword]     = useState("");
@@ -17,14 +19,14 @@ export default function Login() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err) {
-      const msgs = {
+      const msg = {
         "auth/invalid-credential": "Email หรือ Password ไม่ถูกต้อง",
-        "auth/user-not-found":     "ไม่พบบัญชีนี้ในระบบ",
+        "auth/user-not-found":     "ไม่พบบัญชีนี้",
         "auth/wrong-password":     "Password ไม่ถูกต้อง",
-        "auth/too-many-requests":  "ลองผิดหลายครั้ง กรุณารอสักครู่",
+        "auth/too-many-requests":  "ลองเข้าสู่ระบบมากเกินไป กรุณารอสักครู่",
         "auth/invalid-email":      "รูปแบบ Email ไม่ถูกต้อง",
-      };
-      setError(msgs[err.code] || "เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่");
+      }[err.code] || "Email หรือ Password ไม่ถูกต้อง";
+      setError(msg);
     } finally { setLoading(false); }
   };
 
@@ -35,153 +37,168 @@ export default function Login() {
       await sendPasswordResetEmail(auth, email);
       setResetSent(true);
     } catch (err) {
-      const msgs = {
+      const msg = {
         "auth/user-not-found": "ไม่พบบัญชีนี้ กรุณาติดต่อ Admin",
         "auth/invalid-email":  "รูปแบบ Email ไม่ถูกต้อง",
-      };
-      setError(msgs[err.code] || "ส่งไม่สำเร็จ กรุณาลองใหม่");
+      }[err.code] || "ส่งไม่สำเร็จ กรุณาลองใหม่";
+      setError(msg);
     } finally { setResetLoading(false); }
   };
 
-  const onKey = e => { if (e.key === "Enter") resetMode ? handleReset() : handleLogin(); };
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") resetMode ? handleReset() : handleLogin();
+  };
 
   return (
-    <div style={{
-      minHeight:"100vh", display:"flex",
-      fontFamily:"'Noto Sans Thai','Sarabun',sans-serif",
-    }}>
-      {/* Left panel — branding */}
-      <div style={{
-        flex:1, background:"#1E3A5F",
-        display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
-        padding:48,
-      }}>
-        <img src="/logo-tss-03.png" alt="Thai Sausage"
-          style={{ width:160, height:160, objectFit:"contain",
-            borderRadius:"50%", background:"#fff", padding:12,
-            boxShadow:"0 8px 32px rgba(0,0,0,.3)", marginBottom:24 }}
-          onError={e=>e.target.style.display="none"}
-        />
-        <div style={{fontSize:22,fontWeight:700,color:"#fff",textAlign:"center",lineHeight:1.4}}>
-          บริษัท ไทยซอสเซส<br/>มาร์เก็ตติ้ง จำกัด
-        </div>
-        <div style={{fontSize:13,color:"rgba(255,255,255,.55)",marginTop:8}}>
-          THAI SAUSAGE MARKETING CO., LTD.
-        </div>
-        <div style={{fontSize:12,color:"rgba(255,255,255,.35)",marginTop:4}}>
-          EST. 1963
-        </div>
-        {/* Decorative line */}
-        <div style={{width:40,height:2,background:"#C0392B",borderRadius:2,marginTop:24}}/>
-      </div>
+    <div style={S.container}>
+      <div style={S.card}>
 
-      {/* Right panel — form */}
-      <div style={{
-        width:420, background:"#fff",
-        display:"flex", flexDirection:"column", justifyContent:"center",
-        padding:"48px 40px", boxShadow:"-4px 0 20px rgba(0,0,0,.06)",
-      }}>
-        <div style={{fontSize:24,fontWeight:700,color:"#111827",marginBottom:4}}>
-          {resetMode ? "รีเซ็ตรหัสผ่าน" : "เข้าสู่ระบบ"}
+        {/* Logo — วางไฟล์ TGM-01-scaled.jpg ใน /public/ */}
+        <img
+          src="https://yt3.googleusercontent.com/SIdLtm8x9fTt71iYyuOAEGHBIfiD0MN6fTy7S1BVCfXolc_3kMHmOcfDdLE-YgNK0Kn_33KeMA=s160-c-k-c0x00ffffff-no-rj"
+          alt="TGM Logo"
+          style={S.logo}
+          onError={e => { e.target.style.display = "none"; e.target.nextSibling.style.display = "flex"; }}
+        />
+        {/* Fallback เมื่อโหลดรูปไม่ได้ */}
+        <div style={{ ...S.logoFallback, display: "none" }}>
+          <span style={{ fontSize: 28, color: GOLD, fontWeight: 700 }}>E</span>
         </div>
-        <div style={{fontSize:13,color:"#9CA3AF",marginBottom:28}}>
-          {resetMode ? "กรอกอีเมล์เพื่อรับลิงก์ตั้งรหัสผ่าน" : "E-Memo System"}
-        </div>
+
+        <h2 style={S.title}>E-Memo {resetMode ? "รีเซ็ตรหัสผ่าน" : "Login"}</h2>
 
         {/* Error */}
         {error && (
-          <div style={{background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:8,
-            padding:"10px 14px",marginBottom:16,fontSize:13,color:"#991B1B"}}>
-            {error}
-          </div>
+          <div style={S.error}>{error}</div>
         )}
+
+        {/* Reset sent */}
         {resetSent && (
-          <div style={{background:"#ECFDF5",border:"1px solid #A7F3D0",borderRadius:8,
-            padding:"12px 14px",marginBottom:16,fontSize:13,color:"#065F46",lineHeight:1.6}}>
+          <div style={S.success}>
             ✅ ส่งลิงก์ไปที่ <strong>{email}</strong> แล้ว<br/>
-            ตรวจสอบกล่องจดหมาย (รวมถึง Spam)
+            กรุณาตรวจสอบกล่องจดหมาย (รวมถึง Spam)
           </div>
         )}
 
-        {!resetMode ? (<>
-          <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:5}}>อีเมล์</label>
-          <input type="email" value={email}
-            onChange={e=>{setEmail(e.target.value);setError("");}}
-            onKeyDown={onKey} placeholder="your@thaisauces.co.th"
-            style={{width:"100%",padding:"11px 14px",marginBottom:14,border:"1.5px solid #E5E7EB",
-              borderRadius:8,fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}
-            onFocus={e=>e.target.style.borderColor="#2563EB"}
-            onBlur={e=>e.target.style.borderColor="#E5E7EB"}/>
+        {/* Email */}
+        <input
+          style={S.input}
+          placeholder="Email"
+          type="email"
+          value={email}
+          onChange={e => { setEmail(e.target.value); setError(""); }}
+          onKeyDown={handleKeyDown}
+        />
 
-          <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:5}}>รหัสผ่าน</label>
-          <input type="password" value={password}
-            onChange={e=>{setPassword(e.target.value);setError("");}}
-            onKeyDown={onKey} placeholder="••••••••"
-            style={{width:"100%",padding:"11px 14px",marginBottom:20,border:"1.5px solid #E5E7EB",
-              borderRadius:8,fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}
-            onFocus={e=>e.target.style.borderColor="#2563EB"}
-            onBlur={e=>e.target.style.borderColor="#E5E7EB"}/>
+        {/* Password (login mode only) */}
+        {!resetMode && (
+          <input
+            style={S.input}
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={e => { setPassword(e.target.value); setError(""); }}
+            onKeyDown={handleKeyDown}
+          />
+        )}
 
-          <button onClick={handleLogin} disabled={loading} style={{
-            width:"100%",padding:"12px",background:loading?"#93C5FD":"#2563EB",
-            color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:700,
-            cursor:loading?"not-allowed":"pointer",fontFamily:"inherit",transition:"background .15s",
-          }}>
+        {/* Primary button */}
+        {!resetMode ? (
+          <button style={S.button} onClick={handleLogin} disabled={loading}>
             {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
           </button>
-
-          <button onClick={()=>{setResetMode(true);setError("");}}
-            style={{width:"100%",marginTop:12,background:"none",border:"none",
-              color:"#6B7280",fontSize:12,cursor:"pointer",fontFamily:"inherit",
-              textDecoration:"underline",padding:0}}>
-            ลืมรหัสผ่าน / เข้าใช้งานครั้งแรก?
+        ) : !resetSent ? (
+          <button style={S.button} onClick={handleReset} disabled={resetLoading}>
+            {resetLoading ? "กำลังส่ง..." : "📧 ส่งลิงก์ตั้งรหัสผ่าน"}
           </button>
-        </>) : (<>
-          <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:8,
-            padding:"11px 14px",marginBottom:16,fontSize:12,color:"#1E40AF",lineHeight:1.7}}>
-            <strong>📌 เข้าใช้งานครั้งแรก?</strong><br/>
-            กรอกอีเมล์แล้วกด "ส่งลิงก์" — ระบบส่งลิงก์ตั้งรหัสผ่านมาให้ทางอีเมล์
-          </div>
-
-          <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:5}}>อีเมล์</label>
-          <input type="email" value={email}
-            onChange={e=>{setEmail(e.target.value);setError("");}}
-            onKeyDown={onKey} placeholder="your@thaisauces.co.th"
-            style={{width:"100%",padding:"11px 14px",marginBottom:20,border:"1.5px solid #E5E7EB",
-              borderRadius:8,fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}
-            onFocus={e=>e.target.style.borderColor="#2563EB"}
-            onBlur={e=>e.target.style.borderColor="#E5E7EB"}/>
-
-          {!resetSent ? (
-            <button onClick={handleReset} disabled={resetLoading} style={{
-              width:"100%",padding:"12px",background:resetLoading?"#93C5FD":"#2563EB",
-              color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:700,
-              cursor:resetLoading?"not-allowed":"pointer",fontFamily:"inherit",
-            }}>
-              {resetLoading ? "กำลังส่ง..." : "📧 ส่งลิงก์ตั้ง/รีเซ็ตรหัสผ่าน"}
-            </button>
-          ) : (
-            <button onClick={()=>{setResetMode(false);setResetSent(false);setError("");}}
-              style={{width:"100%",padding:"12px",background:"#059669",color:"#fff",
-                border:"none",borderRadius:8,fontSize:13,fontWeight:700,
-                cursor:"pointer",fontFamily:"inherit"}}>
-              ✅ ส่งแล้ว — กลับหน้าเข้าสู่ระบบ
-            </button>
-          )}
-
-          <button onClick={()=>{setResetMode(false);setError("");}}
-            style={{width:"100%",marginTop:10,background:"none",border:"none",
-              color:"#6B7280",fontSize:12,cursor:"pointer",fontFamily:"inherit",
-              textDecoration:"underline",padding:0}}>
-            ← กลับหน้า Login
+        ) : (
+          <button style={{ ...S.button, background: "#16a34a" }}
+            onClick={() => { setResetMode(false); setResetSent(false); setError(""); }}>
+            ✅ กลับหน้าเข้าสู่ระบบ
           </button>
-        </>)}
+        )}
 
-        <div style={{marginTop:32,paddingTop:16,borderTop:"1px solid #F3F4F6",
-          fontSize:11,color:"#D1D5DB",textAlign:"center"}}>
-          ติดต่อ Super Admin เพื่อขอบัญชีผู้ใช้งาน
-        </div>
+        {/* Toggle reset / login */}
+        <button
+          style={S.link}
+          onClick={() => { setResetMode(r => !r); setError(""); setResetSent(false); }}>
+          {resetMode ? "← กลับหน้า Login" : "ลืมรหัสผ่าน / เข้าใช้ครั้งแรก?"}
+        </button>
+
+        {/* First-time hint */}
+        {resetMode && !resetSent && (
+          <p style={S.hint}>
+            หากบัญชีถูกสร้างโดย Admin กรอก Email แล้วกดส่งลิงก์ — ระบบจะส่งลิงก์ตั้งรหัสผ่านมาให้ทางอีเมล์
+          </p>
+        )}
       </div>
     </div>
   );
 }
+
+// ── วิธีแก้ปัญหา Logo ไม่แสดง ──────────────────────────────────────────────
+// 1. วางไฟล์ TGM-01-scaled.jpg ใน โฟลเดอร์ /public/ ของโปรเจกต์ Vite
+//    (เดียวกับไฟล์ index.html)
+// 2. ถ้าใช้ Create React App ให้วางใน /public/ เช่นกัน
+// 3. path ที่ใช้ใน src="/TGM-01-scaled.jpg" จะอ้างอิงจาก public/ โดยอัตโนมัติ
+
+const S = {
+  container: {
+    height: "100vh", display: "flex", justifyContent: "center",
+    alignItems: "center", background: "#000",
+    fontFamily: "'Noto Sans Thai', 'Sarabun', sans-serif",
+  },
+  card: {
+    background: "#fff", padding: "40px", borderRadius: "16px",
+    width: "340px", display: "flex", flexDirection: "column",
+    gap: "14px", textAlign: "center",
+    boxShadow: "0 20px 60px rgba(0,0,0,.5)",
+  },
+  logo: {
+    width: "120px", margin: "0 auto 4px",
+    objectFit: "contain",
+  },
+  logoFallback: {
+    width: 56, height: 56, borderRadius: 12,
+    background: "#111", margin: "0 auto 4px",
+    alignItems: "center", justifyContent: "center",
+  },
+  title: {
+    fontSize: "20px", fontWeight: "700",
+    color: "#111", margin: 0,
+  },
+  input: {
+    padding: "12px", borderRadius: "8px",
+    border: "1px solid #ddd", fontSize: "14px",
+    fontFamily: "inherit", outline: "none",
+    transition: "border-color .15s",
+  },
+  button: {
+    padding: "13px", borderRadius: "8px", border: "none",
+    background: "#D4AF37", color: "#000",
+    fontWeight: "700", fontSize: "14px",
+    cursor: "pointer", fontFamily: "inherit",
+    transition: "opacity .15s",
+  },
+  link: {
+    background: "none", border: "none",
+    color: "#6B7280", fontSize: "12px",
+    cursor: "pointer", fontFamily: "inherit",
+    textDecoration: "underline", padding: 0,
+  },
+  error: {
+    background: "#FFF1F1", border: "1px solid #FECACA",
+    borderRadius: "7px", padding: "10px 12px",
+    fontSize: "12px", color: "#991B1B", textAlign: "left",
+  },
+  success: {
+    background: "#ECFDF5", border: "1px solid #A7F3D0",
+    borderRadius: "7px", padding: "10px 12px",
+    fontSize: "12px", color: "#065F46", textAlign: "left",
+    lineHeight: 1.6,
+  },
+  hint: {
+    fontSize: "11px", color: "#9CA3AF",
+    margin: 0, lineHeight: 1.6, textAlign: "left",
+  },
+};

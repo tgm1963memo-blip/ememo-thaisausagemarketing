@@ -39,28 +39,12 @@ async function sendResetEmailREST(email) {
 }
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
+const GOLD  = "#D4AF37";
+const BLACK = "#111111";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const COMPANY       = "บริษัท ไทยซอสเซส มาร์เก็ตติ้ง จำกัด";
 const COMPANY_SHORT = "Thai Sauces Marketing";
-
-// ── Design System ─────────────────────────────────────────────────────────
-const LOGO_URL      = "/logo-tss-03.png";
-// Brand
-const BRAND_NAVY    = "#1E3A5F";   // sidebar, headings
-const BRAND_RED     = "#C0392B";   // logo accent (used sparingly)
-// Standard button palette
-const CLR_PRIMARY   = "#2563EB";   // blue — primary actions
-const CLR_SUCCESS   = "#16A34A";   // green — approve / save
-const CLR_DANGER    = "#DC2626";   // red — reject / delete
-const CLR_NEUTRAL   = "#6B7280";   // gray — secondary
-// Aliases kept for existing refs
-const GOLD          = "#2563EB";   // map old GOLD → blue
-const BLACK         = "#111827";
-const BRAND_PRIMARY = BRAND_NAVY;
-const BRAND_ACCENT  = CLR_PRIMARY;
-const BRAND_TEXT    = "#FFFFFF";
-const BRAND_LIGHT   = "#EFF6FF";
 
 // ── Built-in system template (used when no custom .docx template uploaded) ──
 const SYSTEM_TEMPLATE_ID = "__system__";
@@ -219,15 +203,10 @@ function printSystemPDF(memo, users) {
     document.head.appendChild(s);
   }
   let html = '<div style="width:210mm;min-height:297mm;margin:0 auto;padding:20mm 22mm;box-sizing:border-box;font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;">';
-  html += '<div style="border-bottom:2px solid #D4AF37;padding-bottom:12px;margin-bottom:20px;display:flex;align-items:center;gap:16px;">';
-  // Logo ซ้าย
-  html += '<img src="'+LOGO_URL+'" style="height:52px;width:auto;object-fit:contain;flex-shrink:0;display:block;"/>';
-  // ชื่อบริษัทและหัวเรื่อง
-  html += '<div style="flex:1;">';
-  html += '<div style="font-size:13px;font-weight:700;color:#1A2F6B;">'+COMPANY+'</div>';
-  html += '<div style="font-size:18px;font-weight:700;margin-top:3px;">บันทึกข้อความ (Memo)</div>';
-  if(memo.docNo) html += '<div style="font-size:11px;color:#6B7280;margin-top:2px;">เลขที่ '+memo.docNo+'</div>';
-  html += '</div>';
+  html += '<div style="text-align:center;border-bottom:2px solid #D4AF37;padding-bottom:12px;margin-bottom:20px;">';
+  html += '<div style="font-size:14px;font-weight:700;">'+COMPANY+'</div>';
+  html += '<div style="font-size:20px;font-weight:700;margin-top:6px;">บันทึกข้อความ (Memo)</div>';
+  if(memo.docNo) html += '<div style="font-size:11px;color:#6B7280;">เลขที่ '+memo.docNo+'</div>';
   html += '</div>';
   html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;"><tbody>';
   html += '<tr><td style="width:90px;color:#6B7280;padding:3px 0;">เรื่อง:</td><td style="font-weight:600;">'+(memo.title||"")+'</td>';
@@ -316,9 +295,7 @@ const getApprovalStatus = (memo, users) => {
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const IS      = { width:"100%", padding:"8px 10px", border:"1px solid #E5E7EB", borderRadius:6, fontSize:13, background:"#fff", color:"#111", boxSizing:"border-box" };
-const BTN_GOLD   = { display:"inline-flex",alignItems:"center",justifyContent:"center",gap:4,padding:"7px 14px",background:CLR_PRIMARY,color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer" };
-const BTN_SUCCESS = { display:"inline-flex",alignItems:"center",justifyContent:"center",gap:4,padding:"7px 14px",background:"#16A34A",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer" };
-const BTN_DANGER  = { display:"inline-flex",alignItems:"center",justifyContent:"center",gap:4,padding:"7px 14px",background:"#DC2626",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer" };
+const BTN_GOLD= { display:"inline-flex", alignItems:"center", justifyContent:"center", gap:4, padding:"7px 14px", background:GOLD, color:BLACK, border:"none", borderRadius:6, fontSize:12, fontWeight:600, cursor:"pointer" };
 const BTN_GRAY= { padding:"4px 10px", fontSize:11, borderRadius:6, background:"#F9FAFB", color:"#6B7280", border:"1px solid #E5E7EB", cursor:"pointer" };
 const BTN_X   = { background:"none", border:"none", cursor:"pointer", fontSize:12, color:"#9CA3AF", padding:"0 2px" };
 const ATT_ROW = { display:"flex", alignItems:"center", gap:8, padding:"6px 10px", background:"#F9FAFB", borderRadius:6, marginBottom:4, fontSize:12, border:"1px solid #F3F4F6" };
@@ -631,83 +608,30 @@ function MemoRow({ memo, users, onClick, highlight, curUser, onRecall, onEdit })
 }
 
 function ActionModal({ modal, onClose, onApprove, onReject, curUser }) {
-  const [comment,    setComment]    = useState("");
-  const [sigData,    setSigData]    = useState(curUser?.signature || null);
-  const [step,       setStep]       = useState("confirm"); // "confirm" | "sign"
-  const isA = modal.type === "approve";
-
-  const handleConfirm = () => {
-    if (isA) {
-      // ถ้ายังไม่มีลายเซ็น ให้วาดก่อน
-      if (!sigData) { setStep("sign"); return; }
-      onApprove(comment, sigData);
-    } else {
-      onReject(comment);
-    }
-  };
-
+  const [comment, setComment] = useState("");
+  const isA = modal.type==="approve";
   return (
-    <div style={{position:"fixed",inset:0,zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.55)"}}>
-      <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:14,padding:24,width:400,boxShadow:"0 20px 60px rgba(0,0,0,.25)",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
+    <div style={{position:"fixed",inset:0,zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.5)"}}>
+      <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:24,width:380,boxShadow:"0 20px 60px rgba(0,0,0,.2)"}}>
         <div style={{fontSize:15,fontWeight:600,marginBottom:4,color:"#111"}}>{isA?"ยืนยันการอนุมัติ":"ยืนยันการปฏิเสธ"}</div>
         <div style={{fontSize:12,color:"#6B7280",marginBottom:16,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{modal.memo.title}</div>
-
-        {step === "confirm" && (<>
+        {curUser.signature && isA && (
           <div style={{marginBottom:12}}>
-            <label style={{fontSize:11,fontWeight:600,color:"#6B7280",display:"block",marginBottom:3}}>ความคิดเห็น (ถ้ามี)</label>
-            <textarea value={comment} onChange={e=>setComment(e.target.value)} rows={3}
-              style={{width:"100%",padding:"7px 9px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,fontFamily:"inherit",resize:"none",boxSizing:"border-box"}}/>
-          </div>
-          {isA && (
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:11,fontWeight:600,color:"#6B7280",marginBottom:4}}>ลายเซ็น</div>
-              {sigData ? (
-                <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"#F9FAFB",borderRadius:6,border:"1px solid #E5E7EB"}}>
-                  <img src={sigData} alt="sig" style={{height:36,border:"1px solid #E5E7EB",borderRadius:4,background:"#fff"}}/>
-                  <div style={{flex:1,fontSize:11,color:"#065F46"}}>✓ มีลายเซ็น</div>
-                  <button onClick={()=>setSigData(null)} style={{background:"none",border:"none",cursor:"pointer",fontSize:11,color:"#9CA3AF"}}>เปลี่ยน</button>
-                </div>
-              ) : (
-                <div style={{padding:"10px 12px",background:"#FFFBEB",border:"1px solid #FCD34D",borderRadius:6,fontSize:12,color:"#B45309",cursor:"pointer"}}
-                  onClick={()=>setStep("sign")}>
-                  ✍ คลิกเพื่อวาดลายเซ็น (จำเป็นสำหรับการอนุมัติ)
-                </div>
-              )}
-            </div>
-          )}
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={handleConfirm}
-              style={{flex:1,padding:10,background:isA?"#16A34A":"#DC2626",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>
-              {isA ? (sigData?"✓ ยืนยันอนุมัติ":"✍ วาดลายเซ็น") : "✕ ปฏิเสธ"}
-            </button>
-            <button onClick={onClose}
-              style={{flex:1,padding:10,background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:13,cursor:"pointer"}}>
-              ยกเลิก
-            </button>
-          </div>
-        </>)}
-
-        {step === "sign" && (
-          <div>
-            <div style={{fontSize:12,color:"#6B7280",marginBottom:8}}>วาดลายเซ็นของคุณ:</div>
-            <SignaturePad value={sigData} onChange={setSigData}/>
-            <div style={{display:"flex",gap:8,marginTop:12}}>
-              <button onClick={()=>{ if(sigData){ onApprove(comment,sigData); } else setStep("confirm"); }}
-                style={{flex:1,padding:10,background:sigData?CLR_PRIMARY:"#9CA3AF",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:sigData?"pointer":"not-allowed"}}>
-                {sigData?"✓ ยืนยันอนุมัติพร้อมลายเซ็น":"วาดลายเซ็นก่อน"}
-              </button>
-              <button onClick={()=>setStep("confirm")}
-                style={{flex:1,padding:10,background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:13,cursor:"pointer"}}>
-                ← กลับ
-              </button>
-            </div>
+            <div style={{fontSize:11,color:"#6B7280",marginBottom:4}}>ลายเซ็นที่จะใช้:</div>
+            <img src={curUser.signature} alt="sig" style={{maxHeight:48,border:"1px solid #E5E7EB",borderRadius:6,background:"#F9FAFB",padding:3}}/>
           </div>
         )}
+        <Field label="ความคิดเห็น (ถ้ามี)">
+          <textarea value={comment} onChange={e=>setComment(e.target.value)} rows={3} style={{...IS,resize:"none",fontFamily:"inherit"}}/>
+        </Field>
+        <div style={{display:"flex",gap:8,marginTop:8}}>
+          <button onClick={()=>isA?onApprove(comment):onReject(comment)} style={{flex:1,padding:10,background:isA?GOLD:"#DC2626",color:isA?BLACK:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>{isA?"✓ อนุมัติ":"✕ ปฏิเสธ"}</button>
+          <button onClick={onClose} style={{flex:1,padding:10,background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:13,cursor:"pointer"}}>ยกเลิก</button>
+        </div>
       </div>
     </div>
   );
 }
-
 
 function NotifyPanel({ notify, setNotify, users, notifyConfig }) {
   const [emailIn, setEmailIn] = useState("");
@@ -1202,9 +1126,9 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
                 </button>
               )
             )}
-            {canApprove&&<><button onClick={()=>setModal({type:"approve",memo})} style={{padding:11,background:"#16A34A",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ อนุมัติ</button><button onClick={()=>setModal({type:"reject",memo})} style={{padding:11,background:"#DC2626",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✕ ปฏิเสธ</button></>}
-            {isCreator&&memo.status==="pending"&&can(curUser.role,"recall")&&<button onClick={onRecall} style={{padding:11,background:"#F9FAFB",color:"#374151",border:"1px solid #E5E7EB",borderRadius:6,fontSize:13,cursor:"pointer"}}>↩ เรียกคืน Memo</button>}
-            {isCreator&&(memo.status==="draft"||memo.status==="recalled")&&<button onClick={onEdit} style={{padding:11,background:CLR_PRIMARY,color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✎ แก้ไข Memo</button>}
+            {canApprove&&<><button onClick={()=>setModal({type:"approve",memo})} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ อนุมัติ</button><button onClick={()=>setModal({type:"reject",memo})} style={{padding:11,background:"#FFF1F1",color:"#991B1B",border:"1px solid #FECACA",borderRadius:6,fontSize:13,cursor:"pointer"}}>✕ ปฏิเสธ</button></>}
+            {isCreator&&memo.status==="pending"&&can(curUser.role,"recall")&&<button onClick={onRecall} style={{padding:11,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:13,cursor:"pointer"}}>↩ เรียกคืน Memo</button>}
+            {isCreator&&(memo.status==="draft"||memo.status==="recalled")&&<button onClick={onEdit} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✎ แก้ไข Memo</button>}
           </div>
         </div>
       </div>
@@ -1423,7 +1347,7 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
         );
       })}
 
-      <button onClick={save} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"9px 20px",background:CLR_PRIMARY,color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+      <button onClick={save} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"9px 20px",background:"#D4AF37",color:"#111",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>
         💾 บันทึกการตั้งค่า
       </button>
     </div>
@@ -1443,7 +1367,7 @@ class ErrorBoundary extends React.Component {
           <div style={{fontSize:15,fontWeight:600,color:"#991B1B",marginBottom:8}}>เกิดข้อผิดพลาด</div>
           <div style={{fontSize:12,color:"#6B7280",marginBottom:20,maxWidth:400,margin:"0 auto 20px"}}>{this.state.error.message}</div>
           <button onClick={()=>this.setState({error:null})}
-            style={{padding:"9px 20px",background:CLR_PRIMARY,color:"#fff",border:"none",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            style={{padding:"9px 20px",background:"#D4AF37",color:"#111",border:"none",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer"}}>
             ลองใหม่
           </button>
         </div>
@@ -1577,7 +1501,7 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",background:"rgba(0,0,0,.75)",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
       {/* Left controls */}
       <div style={{width:260,background:"#111",color:"#fff",display:"flex",flexDirection:"column",flexShrink:0}}>
-        <div style={{padding:"16px 16px 14px",borderBottom:"1px solid #F3F4F6",background:BRAND_NAVY}}>
+        <div style={{padding:"16px 16px 12px",borderBottom:"1px solid #222"}}>
           <div style={{fontSize:13,fontWeight:600,color:GOLD}}>ตัวอย่างเอกสาร + PDF</div>
           <div style={{fontSize:11,color:"#555",marginTop:2}}>ลากจุด ✍ บนเอกสารเพื่อย้ายตำแหน่ง</div>
         </div>
@@ -1602,10 +1526,10 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
               </div>
             </div>
           ))}
-          <button onClick={addZone} style={{width:"100%",padding:"8px",background:"transparent",border:"1px dashed #2563EB",borderRadius:6,color:CLR_PRIMARY,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>+ เพิ่มจุดลงนาม</button>
+          <button onClick={addZone} style={{width:"100%",padding:"8px",background:"transparent",border:`1px dashed ${GOLD}`,borderRadius:6,color:GOLD,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>+ เพิ่มจุดลงนาม</button>
         </div>
         <div style={{padding:14,borderTop:"1px solid #222",display:"flex",flexDirection:"column",gap:8}}>
-          <button onClick={handlePrint} disabled={printing} style={{width:"100%",padding:"10px",background:CLR_PRIMARY,color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:printing?"not-allowed":"pointer",fontFamily:"inherit",opacity:printing?.7:1}}>
+          <button onClick={handlePrint} disabled={printing} style={{width:"100%",padding:"10px",background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:printing?"not-allowed":"pointer",fontFamily:"inherit",opacity:printing?.7:1}}>
             {printing?"กำลังเตรียม...":"🖨️ โหลด / พิมพ์ PDF"}
           </button>
           <button onClick={()=>onSaveZones(zones)} style={{width:"100%",padding:"10px",background:"#1D4ED8",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
@@ -1635,18 +1559,19 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
                 <div style={{height:32,borderBottom:"1px solid #333",margin:"4px 0"}}/>
               </div>
             ))}
-            <div style={{borderBottom:`2px solid ${BRAND_ACCENT}`,paddingBottom:12,marginBottom:20,display:"flex",alignItems:"center",gap:14}}>
-              <img src={https://yt3.googleusercontent.com/SIdLtm8x9fTt71iYyuOAEGHBIfiD0MN6fTy7S1BVCfXolc_3kMHmOcfDdLE-YgNK0Kn_33KeMA=s160-c-k-c0x00ffffff-no-rj} alt="logo" onError={e=>e.target.style.display="none"}
-                style={{height:52,width:"auto",objectFit:"contain",flexShrink:0}}/>
-              <div style={{flex:1}}>
-                <div style={{fontSize:13,fontWeight:700,color:BRAND_PRIMARY}}>{COMPANY}</div>
-                <div style={{fontSize:18,fontWeight:700,marginTop:3}}>บันทึกข้อความ (Memo)</div>
-                {memo.docNo&&<div style={{fontSize:11,color:"#6B7280",marginTop:2}}>เลขที่ {memo.docNo}</div>}
-              </div>
+            <div style={{textAlign:"center",borderBottom:`2px solid ${GOLD}`,paddingBottom:12,marginBottom:20}}>
+        <img 
+                  src="https://yt3.googleusercontent.com/SIdLtm8x9fTt71iYyuOAEGHBIfiD0MN6fTy7S1BVCfXolc_3kMHmOcfDdLE-YgNK0Kn_33KeMA=s300"
+                  alt="Company Logo"
+                  style="height:50px; display:block;"
+                />      
+	<div style={{fontSize:14,fontWeight:700,color:"#111"}}>{COMPANY}</div>
+              <div style={{fontSize:20,fontWeight:700,marginTop:6}}>บันทึกข้อความ (Memo)</div>
+              {memo.docNo&&<div style={{fontSize:11,color:"#6B7280",marginTop:3}}>เลขที่ {memo.docNo}</div>}
             </div>
             <table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:12}}><tbody>
               <tr><td style={{width:100,color:"#6B7280",paddingBottom:5}}>เรื่อง:</td><td style={{fontWeight:600,paddingBottom:5}}>{memo.title||<span style={{color:"#ccc"}}>ยังไม่ได้กรอก</span>}</td><td style={{width:80,color:"#6B7280",paddingBottom:5,textAlign:"right"}}>หมวดหมู่:</td><td style={{paddingBottom:5,textAlign:"right"}}>{memo.category||"-"}</td></tr>
-              <tr><td style={{color:"#6B7280"}}>ผู้สร้าง:</td><td>{creator.name||"-"} {creator.dept?`(${creator.dept})`:""}</td><td style={{color:"#6B7280",textAlign:"right"}}>วันที่:</td><td style={{textAlign:"right"}}>{fmtD(memo.createdAt||new Date().toISOString())}</td></tr>
+              <tr><td style={{color:"#6B7280"}}>ผู้สร้าง:</td><td>{creator.name||{creator_name}} {creator.dept?`(${creator.dept})`:""}</td><td style={{color:"#6B7280",textAlign:"right"}}>วันที่:</td><td style={{textAlign:"right"}}>{fmtD(memo.createdAt||new Date().toISOString())}</td></tr>
             </tbody></table>
             <div style={{borderTop:"1px solid #E5E7EB",marginBottom:20}}/>
             <div style={{fontSize:13,lineHeight:1.9,whiteSpace:"pre-wrap",color:"#374151",minHeight:120,marginBottom:28}}>
@@ -1686,124 +1611,6 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
   );
 }
 
-// ── UploadMemoView — อัปโหลดเอกสารที่มีอยู่แล้วและเซ็นชื่อบนเอกสาร ───────────
-function UploadMemoView({ curUser, users, showToast, pdfTemplates }) {
-  const [file,     setFile]     = useState(null);   // { name, dataUrl, type }
-  const [sigPos,   setSigPos]   = useState(null);   // { x%, y% }
-  const [sigData,  setSigData]  = useState(curUser?.signature || null);
-  const [placing,  setPlacing]  = useState(false);
-  const previewRef = useRef();
-  const fileRef    = useRef();
-
-  const handleUpload = e => {
-    const f = e.target.files[0];
-    if (!f) return;
-    const r = new FileReader();
-    r.onload = ev => setFile({ name:f.name, dataUrl:ev.target.result, type:f.type });
-    r.readAsDataURL(f);
-    e.target.value = "";
-  };
-
-  const handlePreviewClick = e => {
-    if (!placing || !previewRef.current) return;
-    const rect = previewRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top)  / rect.height) * 100;
-    setSigPos({ x: Math.max(0,Math.min(x,80)), y: Math.max(0,Math.min(y,90)) });
-    setPlacing(false);
-  };
-
-  const handlePrint = () => {
-    if (!file) return;
-    const root = document.getElementById("ememo-print-root") || (() => {
-      const d = document.createElement("div"); d.id = "ememo-print-root"; document.body.appendChild(d); return d;
-    })();
-    const sigHtml = (sigData && sigPos)
-      ? `<img src="${sigData}" style="position:absolute;left:${sigPos.x}%;top:${sigPos.y}%;height:48px;z-index:10;background:rgba(255,255,255,.7);border-radius:3px;padding:2px;"/>`
-      : "";
-    root.innerHTML = `
-      <div style="position:relative;width:210mm;min-height:297mm;margin:0 auto;">
-        <img src="${file.dataUrl}" style="width:100%;display:block;"/>
-        ${sigHtml}
-      </div>`;
-    setTimeout(() => { window.print(); setTimeout(() => { root.innerHTML = ""; }, 500); }, 200);
-  };
-
-  return (
-    <div style={{padding:24}}>
-      <div style={{fontSize:18,fontWeight:600,color:"#111",marginBottom:4}}>อัปโหลดเอกสารและลงนาม</div>
-      <div style={{fontSize:13,color:"#6B7280",marginBottom:20}}>อัปโหลดไฟล์ PDF หรือรูปภาพเอกสารที่ต้องการเซ็นชื่อ</div>
-
-      <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:16,alignItems:"start"}}>
-        {/* Preview area */}
-        <div>
-          {!file ? (
-            <div onClick={()=>fileRef.current?.click()}
-              style={{border:"2px dashed #E5E7EB",borderRadius:10,padding:"48px 32px",textAlign:"center",cursor:"pointer",background:"#F9FAFB"}}>
-              <div style={{fontSize:36,marginBottom:8}}>📄</div>
-              <div style={{fontSize:14,fontWeight:500,color:"#374151",marginBottom:4}}>คลิกเพื่ออัปโหลดเอกสาร</div>
-              <div style={{fontSize:12,color:"#9CA3AF"}}>รองรับ PDF, PNG, JPG</div>
-              <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg" style={{display:"none"}} onChange={handleUpload}/>
-            </div>
-          ) : (
-            <div style={{position:"relative"}}>
-              <div style={{fontSize:12,color:"#6B7280",marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
-                <span>📄 {file.name}</span>
-                {placing && <span style={{background:"#FFFBEB",color:"#B45309",border:"1px solid #FCD34D",borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:500}}>คลิกบนเอกสารเพื่อวางลายเซ็น</span>}
-              </div>
-              <div ref={previewRef} onClick={handlePreviewClick}
-                style={{position:"relative",border:"1px solid #E5E7EB",borderRadius:6,overflow:"hidden",cursor:placing?"crosshair":"default",background:"#fff",boxShadow:"0 2px 16px rgba(0,0,0,.08)"}}>
-                <img src={file.dataUrl} alt="doc" style={{width:"100%",display:"block"}}/>
-                {sigData && sigPos && (
-                  <img src={sigData} alt="sig" draggable={false}
-                    style={{position:"absolute",left:`${sigPos.x}%`,top:`${sigPos.y}%`,height:48,zIndex:10,background:"rgba(255,255,255,.8)",borderRadius:3,padding:2,border:`1px solid ${BRAND_ACCENT}`}}/>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Controls */}
-        <div>
-          {/* Signature */}
-          <div style={{background:"#fff",border:"1px solid #F3F4F6",borderRadius:10,padding:14,marginBottom:12}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:.5,marginBottom:10}}>ลายเซ็น</div>
-            <SignaturePad value={sigData} onChange={setSigData}/>
-          </div>
-
-          {/* Place signature */}
-          {file && sigData && (
-            <button onClick={()=>setPlacing(true)} style={{width:"100%",padding:"10px",background:placing?"#EFF6FF":CLR_PRIMARY,color:placing?"#1E40AF":"#fff",border:placing?"2px solid #FCD34D":"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:8,fontFamily:"inherit"}}>
-              {placing ? "🎯 คลิกบนเอกสารเพื่อวางตำแหน่ง" : (sigPos ? "📍 เปลี่ยนตำแหน่งลายเซ็น" : "📍 วางลายเซ็นบนเอกสาร")}
-            </button>
-          )}
-          {sigPos && (
-            <button onClick={()=>setSigPos(null)} style={{width:"100%",padding:"8px",background:"#F9FAFB",color:"#9CA3AF",border:"1px solid #E5E7EB",borderRadius:6,fontSize:11,cursor:"pointer",marginBottom:8,fontFamily:"inherit"}}>
-              ✕ ลบลายเซ็นออกจากเอกสาร
-            </button>
-          )}
-          {file && (
-            <button onClick={handlePrint} style={{width:"100%",padding:"11px",background:"#16A34A",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:8,fontFamily:"inherit"}}>
-              🖨️ พิมพ์ / บันทึก PDF
-            </button>
-          )}
-          <button onClick={()=>{setFile(null);setSigPos(null);}} style={{width:"100%",padding:"9px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
-            🔄 เริ่มใหม่
-          </button>
-
-          <div style={{marginTop:14,padding:"10px 12px",background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:8,fontSize:11,color:"#0369A1",lineHeight:1.7}}>
-            <strong>วิธีใช้:</strong><br/>
-            1. อัปโหลดเอกสาร PDF หรือรูปภาพ<br/>
-            2. วาดลายเซ็นในช่องด้านบน<br/>
-            3. กด "วางลายเซ็น" แล้วคลิกตำแหน่งบนเอกสาร<br/>
-            4. กด "พิมพ์ / บันทึก PDF"
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function EMemo() {
   const [authUser,      setAuthUser]      = useState(undefined);
@@ -1835,7 +1642,7 @@ export default function EMemo() {
 
   const showToast=(msg,type="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3200); };
 
-  if (authUser===undefined) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F8FAFC",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}><div style={{textAlign:"center"}}><div style={{width:40,height:40,background:CLR_PRIMARY,borderRadius:10,margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:BLACK,fontWeight:700}}>E</div><div style={{color:"#666",fontSize:13}}>กำลังโหลด...</div></div></div>;
+  if (authUser===undefined) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:BLACK,fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}><div style={{textAlign:"center"}}><div style={{width:40,height:40,background:GOLD,borderRadius:10,margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:BLACK,fontWeight:700}}>E</div><div style={{color:"#666",fontSize:13}}>กำลังโหลด...</div></div></div>;
   if (!authUser) return <Login/>;
   if (!data) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F9FAFB",fontSize:13,color:"#6B7280",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>กำลังโหลดข้อมูล...</div>;
 
@@ -1920,7 +1727,7 @@ export default function EMemo() {
   };
 
   // [3] Level-based approval ─────────────────────────────────────────────────
-  const approveMemo = async (memo, comment, sigData=null) => {
+  const approveMemo = async (memo, comment) => {
     const now     = new Date().toISOString();
     const lvIdx   = memo.currentLevel||0;
     const levels  = (memo.workflowLevels||[]).map((lv,li)=>{
@@ -1929,7 +1736,7 @@ export default function EMemo() {
         const matchUser  = ap.userId&&ap.userId===curUser.id;
         const matchEmail = ap.email&&ap.email===curUser.email;
         if((matchUser||matchEmail)&&ap.status==="pending")
-          return {...ap, status:"approved", comment, actionAt:now, signature:sigData||curUser.signature||null};
+          return {...ap, status:"approved", comment, actionAt:now, signature:curUser.signature||null};
         return ap;
       })};
     });
@@ -1990,41 +1797,45 @@ export default function EMemo() {
     <div style={{fontFamily:"'Noto Sans Thai','Sarabun',sans-serif",display:"flex",height:"100vh",overflow:"hidden"}}>
       <Toast t={toast}/>
       {syncing&&<div style={{position:"fixed",bottom:16,left:216,background:"#FFFBEB",color:"#B45309",border:"1px solid #FCD34D",borderRadius:6,padding:"4px 10px",fontSize:11,zIndex:100}}>⟳ กำลังบันทึก...</div>}
-      {modal&&<ActionModal modal={modal} onClose={()=>setModal(null)} onApprove={(c,sig)=>approveMemo(modal.memo,c,sig)} onReject={c=>rejectMemo(modal.memo,c)} curUser={curUser}/>}
+      {modal&&<ActionModal modal={modal} onClose={()=>setModal(null)} onApprove={c=>approveMemo(modal.memo,c)} onReject={c=>rejectMemo(modal.memo,c)} curUser={curUser}/>}
       {showProfile&&<ProfileModal curUser={curUser} onClose={()=>setShowProfile(false)} showToast={showToast}/>}
       {showTplManager&&can(curUser.role,"settings")&&<DocxTemplateManager templates={pdfTemplates} onSave={async tpls=>{await writePdfTemplates(tpls);showToast("บันทึก Template แล้ว");setShowTplManager(false);}} onClose={()=>setShowTplManager(false)}/>}
       {showSigZones&&editMemo&&<SignatureZonesModal memo={editMemo} users={users} curUser={curUser} onSave={saveSigZones} onClose={()=>setShowSigZones(false)}/>}
 
       {/* Sidebar */}
-      <div style={{width:220,background:"#fff",borderRight:"1px solid #E5E7EB",display:"flex",flexDirection:"column",flexShrink:0,boxShadow:"2px 0 8px rgba(0,0,0,.04)"}}>
-        <div style={{padding:"16px 16px 14px",borderBottom:"1px solid #F3F4F6",background:BRAND_NAVY}}>
+      <div style={{width:210,background:BLACK,color:"#fff",display:"flex",flexDirection:"column",flexShrink:0}}>
+        <div style={{padding:"16px 16px 12px",borderBottom:"1px solid #222"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <img src={LOGO_URL} alt="logo" onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}
-                style={{height:36,width:"auto",objectFit:"contain",flexShrink:0,maxWidth:36}}/>
-              <div style={{width:28,height:28,background:BRAND_ACCENT,borderRadius:6,display:"none",alignItems:"center",justifyContent:"center",fontSize:14,color:"#111",fontWeight:700,flexShrink:0}}>E</div>
-            <div><div style={{fontSize:12,fontWeight:600,color:"#fff",letterSpacing:.3}}>E-Memo System</div><div style={{fontSize:9,color:"rgba(255,255,255,.65)",lineHeight:1.3,marginTop:1}}>ไทยซอสเซส มาร์เก็ตติ้ง</div></div>
+            <img
+              src="https://yt3.googleusercontent.com/SIdLtm8x9fTt71iYyuOAEGHBIfiD0MN6fTy7S1BVCfXolc_3kMHmOcfDdLE-YgNK0Kn_33KeMA=s160-c-k-c0x00ffffff-no-rj"
+              alt="TGM Logo"
+              style={{width:28,height:28,borderRadius:6,objectFit:"cover",flexShrink:0,background:GOLD}}
+              onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}
+            />
+            <div style={{width:28,height:28,background:GOLD,borderRadius:6,display:"none",alignItems:"center",justifyContent:"center",fontSize:14,color:BLACK,fontWeight:700,flexShrink:0}}>E</div>
+            <div><div style={{fontSize:12,fontWeight:600,color:GOLD,letterSpacing:.3}}>E-Memo System</div><div style={{fontSize:9,color:"#555",lineHeight:1.3,marginTop:1}}>ไทยซอสเซส มาร์เก็ตติ้ง</div></div>
           </div>
         </div>
-        <div style={{padding:"10px 10px 6px"}}><button onClick={startCreate} style={{width:"100%",padding:"9px",fontSize:12,borderRadius:6,background:CLR_PRIMARY,color:"#fff",border:"none",fontWeight:600,cursor:"pointer",fontFamily:"inherit",borderRadius:6}}>+ สร้าง Memo ใหม่</button></div>
+        <div style={{padding:"10px 10px 6px"}}><button onClick={startCreate} style={{...BTN_GOLD,width:"100%",padding:"9px",fontSize:12,borderRadius:6}}>+ สร้าง Memo ใหม่</button></div>
         <nav style={{flex:1,padding:"4px 8px",overflowY:"auto"}}>
           {NAV.filter(n=>n.roles.includes(curUser.role)).map(n=>(
-            <button key={n.k} onClick={()=>{ setView(n.k); pushHistory(n.k); }} style={{width:"100%",padding:"8px 10px",borderRadius:6,background:view===n.k?"#EFF6FF":"transparent",color:view===n.k?CLR_PRIMARY:"#6B7280",fontWeight:view===n.k?600:400,border:"none",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,marginBottom:1,textAlign:"left"}}>
+            <button key={n.k} onClick={()=>{ setView(n.k); pushHistory(n.k); }} style={{width:"100%",padding:"8px 10px",borderRadius:6,background:view===n.k?"#1e1e1e":"transparent",color:view===n.k?GOLD:"#888",border:"none",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,marginBottom:1,textAlign:"left"}}>
               <span style={{fontSize:13,width:16,textAlign:"center"}}>{n.i}</span>
               <span style={{flex:1}}>{n.l}</span>
               {n.badge?<span style={{background:"#DC2626",color:"#fff",borderRadius:10,fontSize:10,padding:"1px 5px",fontWeight:600}}>{n.badge}</span>:null}
             </button>
           ))}
         </nav>
-        <div style={{borderTop:"1px solid #F3F4F6",padding:"10px 12px"}}>
+        <div style={{borderTop:"1px solid #222",padding:"10px 12px"}}>
           {/* [1] Profile button */}
           <button onClick={()=>setShowProfile(true)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,marginBottom:8,background:"transparent",border:"none",cursor:"pointer",padding:"2px 0"}}>
             <Avatar userId={curUser.id} users={users.length?users:[curUser]} size={26}/>
             <div style={{minWidth:0,textAlign:"left"}}>
-              <div style={{fontSize:11,fontWeight:500,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{curUser.name}</div>
+              <div style={{fontSize:11,fontWeight:500,color:"#ddd",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{curUser.name}</div>
               <div style={{fontSize:10,color:GOLD}}>{curUser.signature?"✍ มีลายเซ็น":"คลิกตั้งลายเซ็น"}</div>
             </div>
           </button>
-          <button onClick={()=>signOut(auth)} style={{width:"100%",padding:"7px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>ออกจากระบบ</button>
+          <button onClick={()=>signOut(auth)} style={{width:"100%",padding:"7px",background:"#1a1a1a",color:"#666",border:"1px solid #2a2a2a",borderRadius:6,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>ออกจากระบบ</button>
         </div>
       </div>
 
@@ -2036,7 +1847,6 @@ export default function EMemo() {
         {view==="all"      &&can(curUser.role,"viewAll")&&<MemoListView memoList={visibleMemos} users={users} title="Memo ทั้งหมด" curUser={curUser} onOpen={openMemo}/>}
         {view==="search"   &&<SearchView memoList={visibleMemos} users={users} curUser={curUser} onOpen={openMemo}/>}
         {view==="users"    &&can(curUser.role,"manageUsers")&&<UsersMgmt users={users} curUser={curUser} showToast={showToast}/>}
-        {view==="upload"    &&<UploadMemoView curUser={curUser} users={users} showToast={showToast} pdfTemplates={pdfTemplates}/>}
         {view==="settings" &&(
           can(curUser.role,"settings")
             ? <ErrorBoundary><SettingsView notifyConfig={notifyConfig} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)}/></ErrorBoundary>
