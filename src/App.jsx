@@ -1571,7 +1571,7 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
             </div>
             <table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:12}}><tbody>
               <tr><td style={{width:100,color:"#6B7280",paddingBottom:5}}>เรื่อง:</td><td style={{fontWeight:600,paddingBottom:5}}>{memo.title||<span style={{color:"#ccc"}}>ยังไม่ได้กรอก</span>}</td><td style={{width:80,color:"#6B7280",paddingBottom:5,textAlign:"right"}}>หมวดหมู่:</td><td style={{paddingBottom:5,textAlign:"right"}}>{memo.category||"-"}</td></tr>
-              <tr><td style={{color:"#6B7280"}}>ผู้สร้าง:</td><td>{creator.name||{creator_name}} {creator.dept?`(${creator.dept})`:""}</td><td style={{color:"#6B7280",textAlign:"right"}}>วันที่:</td><td style={{textAlign:"right"}}>{fmtD(memo.createdAt||new Date().toISOString())}</td></tr>
+              <tr><td style={{color:"#6B7280"}}>ผู้สร้าง:</td><td>{creator.name||{{creator_name}}} {creator.dept?`(${creator.dept})`:""}</td><td style={{color:"#6B7280",textAlign:"right"}}>วันที่:</td><td style={{textAlign:"right"}}>{fmtD(memo.createdAt||new Date().toISOString())}</td></tr>
             </tbody></table>
             <div style={{borderTop:"1px solid #E5E7EB",marginBottom:20}}/>
             <div style={{fontSize:13,lineHeight:1.9,whiteSpace:"pre-wrap",color:"#374151",minHeight:120,marginBottom:28}}>
