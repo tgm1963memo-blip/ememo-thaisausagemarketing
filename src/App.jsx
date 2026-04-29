@@ -46,13 +46,23 @@ const BLACK = "#111111";
 const COMPANY       = "บริษัท ไทยซอสเซส มาร์เก็ตติ้ง จำกัด";
 const COMPANY_SHORT = "Thai Sauces Marketing";
 
-// ── Brand config — Thai Sausage Marketing ──────────────────────────────
-// Logo: public/logo-tss-03.png (Navy #1A2F6B + Red #CC2229)
+// ── Design System ─────────────────────────────────────────────────────────
 const LOGO_URL      = "/logo-tss-03.png";
-const BRAND_PRIMARY = "#1A2F6B";   // Navy จาก logo
-const BRAND_ACCENT  = "#CC2229";   // Red จาก logo
-const BRAND_TEXT    = "#FFFFFF";   // white text on primary
-const BRAND_LIGHT   = "#FEF2F2";   // light red bg
+// Brand
+const BRAND_NAVY    = "#1E3A5F";   // sidebar, headings
+const BRAND_RED     = "#C0392B";   // logo accent (used sparingly)
+// Standard button palette
+const CLR_PRIMARY   = "#2563EB";   // blue — primary actions
+const CLR_SUCCESS   = "#16A34A";   // green — approve / save
+const CLR_DANGER    = "#DC2626";   // red — reject / delete
+const CLR_NEUTRAL   = "#6B7280";   // gray — secondary
+// Aliases kept for existing refs
+const GOLD          = "#2563EB";   // map old GOLD → blue
+const BLACK         = "#111827";
+const BRAND_PRIMARY = BRAND_NAVY;
+const BRAND_ACCENT  = CLR_PRIMARY;
+const BRAND_TEXT    = "#FFFFFF";
+const BRAND_LIGHT   = "#EFF6FF";
 
 // ── Built-in system template (used when no custom .docx template uploaded) ──
 const SYSTEM_TEMPLATE_ID = "__system__";
@@ -308,7 +318,9 @@ const getApprovalStatus = (memo, users) => {
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const IS      = { width:"100%", padding:"8px 10px", border:"1px solid #E5E7EB", borderRadius:6, fontSize:13, background:"#fff", color:"#111", boxSizing:"border-box" };
-const BTN_GOLD= { display:"inline-flex", alignItems:"center", justifyContent:"center", gap:4, padding:"7px 14px", background:BRAND_PRIMARY, color:"#fff", border:"none", borderRadius:6, fontSize:12, fontWeight:600, cursor:"pointer" };
+const BTN_GOLD   = { display:"inline-flex",alignItems:"center",justifyContent:"center",gap:4,padding:"7px 14px",background:CLR_PRIMARY,color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer" };
+const BTN_SUCCESS = { display:"inline-flex",alignItems:"center",justifyContent:"center",gap:4,padding:"7px 14px",background:"#16A34A",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer" };
+const BTN_DANGER  = { display:"inline-flex",alignItems:"center",justifyContent:"center",gap:4,padding:"7px 14px",background:"#DC2626",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer" };
 const BTN_GRAY= { padding:"4px 10px", fontSize:11, borderRadius:6, background:"#F9FAFB", color:"#6B7280", border:"1px solid #E5E7EB", cursor:"pointer" };
 const BTN_X   = { background:"none", border:"none", cursor:"pointer", fontSize:12, color:"#9CA3AF", padding:"0 2px" };
 const ATT_ROW = { display:"flex", alignItems:"center", gap:8, padding:"6px 10px", background:"#F9FAFB", borderRadius:6, marginBottom:4, fontSize:12, border:"1px solid #F3F4F6" };
@@ -667,7 +679,7 @@ function ActionModal({ modal, onClose, onApprove, onReject, curUser }) {
           )}
           <div style={{display:"flex",gap:8}}>
             <button onClick={handleConfirm}
-              style={{flex:1,padding:10,background:isA?BRAND_PRIMARY:BRAND_ACCENT,color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+              style={{flex:1,padding:10,background:isA?"#16A34A":"#DC2626",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>
               {isA ? (sigData?"✓ ยืนยันอนุมัติ":"✍ วาดลายเซ็น") : "✕ ปฏิเสธ"}
             </button>
             <button onClick={onClose}
@@ -683,7 +695,7 @@ function ActionModal({ modal, onClose, onApprove, onReject, curUser }) {
             <SignaturePad value={sigData} onChange={setSigData}/>
             <div style={{display:"flex",gap:8,marginTop:12}}>
               <button onClick={()=>{ if(sigData){ onApprove(comment,sigData); } else setStep("confirm"); }}
-                style={{flex:1,padding:10,background:sigData?BRAND_PRIMARY:"#9CA3AF",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:sigData?"pointer":"not-allowed"}}>
+                style={{flex:1,padding:10,background:sigData?CLR_PRIMARY:"#9CA3AF",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:sigData?"pointer":"not-allowed"}}>
                 {sigData?"✓ ยืนยันอนุมัติพร้อมลายเซ็น":"วาดลายเซ็นก่อน"}
               </button>
               <button onClick={()=>setStep("confirm")}
@@ -1192,9 +1204,9 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
                 </button>
               )
             )}
-            {canApprove&&<><button onClick={()=>setModal({type:"approve",memo})} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ อนุมัติ</button><button onClick={()=>setModal({type:"reject",memo})} style={{padding:11,background:"#FFF1F1",color:"#991B1B",border:"1px solid #FECACA",borderRadius:6,fontSize:13,cursor:"pointer"}}>✕ ปฏิเสธ</button></>}
-            {isCreator&&memo.status==="pending"&&can(curUser.role,"recall")&&<button onClick={onRecall} style={{padding:11,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:13,cursor:"pointer"}}>↩ เรียกคืน Memo</button>}
-            {isCreator&&(memo.status==="draft"||memo.status==="recalled")&&<button onClick={onEdit} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✎ แก้ไข Memo</button>}
+            {canApprove&&<><button onClick={()=>setModal({type:"approve",memo})} style={{padding:11,background:"#16A34A",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ อนุมัติ</button><button onClick={()=>setModal({type:"reject",memo})} style={{padding:11,background:"#DC2626",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✕ ปฏิเสธ</button></>}
+            {isCreator&&memo.status==="pending"&&can(curUser.role,"recall")&&<button onClick={onRecall} style={{padding:11,background:"#F9FAFB",color:"#374151",border:"1px solid #E5E7EB",borderRadius:6,fontSize:13,cursor:"pointer"}}>↩ เรียกคืน Memo</button>}
+            {isCreator&&(memo.status==="draft"||memo.status==="recalled")&&<button onClick={onEdit} style={{padding:11,background:CLR_PRIMARY,color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✎ แก้ไข Memo</button>}
           </div>
         </div>
       </div>
@@ -1413,7 +1425,7 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
         );
       })}
 
-      <button onClick={save} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"9px 20px",background:BRAND_PRIMARY,color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+      <button onClick={save} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"9px 20px",background:CLR_PRIMARY,color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>
         💾 บันทึกการตั้งค่า
       </button>
     </div>
@@ -1433,7 +1445,7 @@ class ErrorBoundary extends React.Component {
           <div style={{fontSize:15,fontWeight:600,color:"#991B1B",marginBottom:8}}>เกิดข้อผิดพลาด</div>
           <div style={{fontSize:12,color:"#6B7280",marginBottom:20,maxWidth:400,margin:"0 auto 20px"}}>{this.state.error.message}</div>
           <button onClick={()=>this.setState({error:null})}
-            style={{padding:"9px 20px",background:BRAND_PRIMARY,color:"#fff",border:"none",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            style={{padding:"9px 20px",background:CLR_PRIMARY,color:"#fff",border:"none",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer"}}>
             ลองใหม่
           </button>
         </div>
@@ -1567,7 +1579,7 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",background:"rgba(0,0,0,.75)",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
       {/* Left controls */}
       <div style={{width:260,background:"#111",color:"#fff",display:"flex",flexDirection:"column",flexShrink:0}}>
-        <div style={{padding:"16px 16px 12px",borderBottom:"1px solid rgba(255,255,255,0.12)"}}>
+        <div style={{padding:"16px 16px 14px",borderBottom:"1px solid #F3F4F6",background:BRAND_NAVY}}>
           <div style={{fontSize:13,fontWeight:600,color:GOLD}}>ตัวอย่างเอกสาร + PDF</div>
           <div style={{fontSize:11,color:"#555",marginTop:2}}>ลากจุด ✍ บนเอกสารเพื่อย้ายตำแหน่ง</div>
         </div>
@@ -1592,10 +1604,10 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
               </div>
             </div>
           ))}
-          <button onClick={addZone} style={{width:"100%",padding:"8px",background:"transparent",border:`1px dashed ${GOLD}`,borderRadius:6,color:GOLD,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>+ เพิ่มจุดลงนาม</button>
+          <button onClick={addZone} style={{width:"100%",padding:"8px",background:"transparent",border:"1px dashed #2563EB",borderRadius:6,color:CLR_PRIMARY,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>+ เพิ่มจุดลงนาม</button>
         </div>
         <div style={{padding:14,borderTop:"1px solid #222",display:"flex",flexDirection:"column",gap:8}}>
-          <button onClick={handlePrint} disabled={printing} style={{width:"100%",padding:"10px",background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:printing?"not-allowed":"pointer",fontFamily:"inherit",opacity:printing?.7:1}}>
+          <button onClick={handlePrint} disabled={printing} style={{width:"100%",padding:"10px",background:CLR_PRIMARY,color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:printing?"not-allowed":"pointer",fontFamily:"inherit",opacity:printing?.7:1}}>
             {printing?"กำลังเตรียม...":"🖨️ โหลด / พิมพ์ PDF"}
           </button>
           <button onClick={()=>onSaveZones(zones)} style={{width:"100%",padding:"10px",background:"#1D4ED8",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
@@ -1763,7 +1775,7 @@ function UploadMemoView({ curUser, users, showToast, pdfTemplates }) {
 
           {/* Place signature */}
           {file && sigData && (
-            <button onClick={()=>setPlacing(true)} style={{width:"100%",padding:"10px",background:placing?"#FFFBEB":BRAND_PRIMARY,color:placing?"#B45309":"#fff",border:placing?"2px solid #FCD34D":"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:8,fontFamily:"inherit"}}>
+            <button onClick={()=>setPlacing(true)} style={{width:"100%",padding:"10px",background:placing?"#EFF6FF":CLR_PRIMARY,color:placing?"#1E40AF":"#fff",border:placing?"2px solid #FCD34D":"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:8,fontFamily:"inherit"}}>
               {placing ? "🎯 คลิกบนเอกสารเพื่อวางตำแหน่ง" : (sigPos ? "📍 เปลี่ยนตำแหน่งลายเซ็น" : "📍 วางลายเซ็นบนเอกสาร")}
             </button>
           )}
@@ -1773,7 +1785,7 @@ function UploadMemoView({ curUser, users, showToast, pdfTemplates }) {
             </button>
           )}
           {file && (
-            <button onClick={handlePrint} style={{width:"100%",padding:"11px",background:BRAND_ACCENT,color:"#111",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:8,fontFamily:"inherit"}}>
+            <button onClick={handlePrint} style={{width:"100%",padding:"11px",background:"#16A34A",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:8,fontFamily:"inherit"}}>
               🖨️ พิมพ์ / บันทึก PDF
             </button>
           )}
@@ -1825,7 +1837,7 @@ export default function EMemo() {
 
   const showToast=(msg,type="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3200); };
 
-  if (authUser===undefined) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:BLACK,fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}><div style={{textAlign:"center"}}><div style={{width:40,height:40,background:GOLD,borderRadius:10,margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:BLACK,fontWeight:700}}>E</div><div style={{color:"#666",fontSize:13}}>กำลังโหลด...</div></div></div>;
+  if (authUser===undefined) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F8FAFC",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}><div style={{textAlign:"center"}}><div style={{width:40,height:40,background:CLR_PRIMARY,borderRadius:10,margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:BLACK,fontWeight:700}}>E</div><div style={{color:"#666",fontSize:13}}>กำลังโหลด...</div></div></div>;
   if (!authUser) return <Login/>;
   if (!data) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F9FAFB",fontSize:13,color:"#6B7280",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>กำลังโหลดข้อมูล...</div>;
 
@@ -1986,35 +1998,35 @@ export default function EMemo() {
       {showSigZones&&editMemo&&<SignatureZonesModal memo={editMemo} users={users} curUser={curUser} onSave={saveSigZones} onClose={()=>setShowSigZones(false)}/>}
 
       {/* Sidebar */}
-      <div style={{width:210,background:BRAND_PRIMARY,color:"#fff",display:"flex",flexDirection:"column",flexShrink:0}}>
-        <div style={{padding:"16px 16px 12px",borderBottom:"1px solid rgba(255,255,255,0.12)"}}>
+      <div style={{width:220,background:"#fff",borderRight:"1px solid #E5E7EB",display:"flex",flexDirection:"column",flexShrink:0,boxShadow:"2px 0 8px rgba(0,0,0,.04)"}}>
+        <div style={{padding:"16px 16px 14px",borderBottom:"1px solid #F3F4F6",background:BRAND_NAVY}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <img src={LOGO_URL} alt="logo" onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}
                 style={{height:36,width:"auto",objectFit:"contain",flexShrink:0,maxWidth:36}}/>
               <div style={{width:28,height:28,background:BRAND_ACCENT,borderRadius:6,display:"none",alignItems:"center",justifyContent:"center",fontSize:14,color:"#111",fontWeight:700,flexShrink:0}}>E</div>
-            <div><div style={{fontSize:12,fontWeight:600,color:BRAND_ACCENT,letterSpacing:.3}}>E-Memo System</div><div style={{fontSize:9,color:"#555",lineHeight:1.3,marginTop:1}}>ไทยซอสเซส มาร์เก็ตติ้ง</div></div>
+            <div><div style={{fontSize:12,fontWeight:600,color:"#fff",letterSpacing:.3}}>E-Memo System</div><div style={{fontSize:9,color:"rgba(255,255,255,.65)",lineHeight:1.3,marginTop:1}}>ไทยซอสเซส มาร์เก็ตติ้ง</div></div>
           </div>
         </div>
-        <div style={{padding:"10px 10px 6px"}}><button onClick={startCreate} style={{width:"100%",padding:"9px",fontSize:12,borderRadius:6,background:BRAND_ACCENT,color:"#111",border:"none",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ สร้าง Memo ใหม่</button></div>
+        <div style={{padding:"10px 10px 6px"}}><button onClick={startCreate} style={{width:"100%",padding:"9px",fontSize:12,borderRadius:6,background:CLR_PRIMARY,color:"#fff",border:"none",fontWeight:600,cursor:"pointer",fontFamily:"inherit",borderRadius:6}}>+ สร้าง Memo ใหม่</button></div>
         <nav style={{flex:1,padding:"4px 8px",overflowY:"auto"}}>
           {NAV.filter(n=>n.roles.includes(curUser.role)).map(n=>(
-            <button key={n.k} onClick={()=>{ setView(n.k); pushHistory(n.k); }} style={{width:"100%",padding:"8px 10px",borderRadius:6,background:view===n.k?BRAND_ACCENT:"transparent",color:view===n.k?"#fff":"rgba(255,255,255,0.65)",border:"none",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,marginBottom:1,textAlign:"left"}}>
+            <button key={n.k} onClick={()=>{ setView(n.k); pushHistory(n.k); }} style={{width:"100%",padding:"8px 10px",borderRadius:6,background:view===n.k?"#EFF6FF":"transparent",color:view===n.k?CLR_PRIMARY:"#6B7280",fontWeight:view===n.k?600:400,border:"none",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,marginBottom:1,textAlign:"left"}}>
               <span style={{fontSize:13,width:16,textAlign:"center"}}>{n.i}</span>
               <span style={{flex:1}}>{n.l}</span>
               {n.badge?<span style={{background:"#DC2626",color:"#fff",borderRadius:10,fontSize:10,padding:"1px 5px",fontWeight:600}}>{n.badge}</span>:null}
             </button>
           ))}
         </nav>
-        <div style={{borderTop:"1px solid rgba(255,255,255,0.12)",padding:"10px 12px"}}>
+        <div style={{borderTop:"1px solid #F3F4F6",padding:"10px 12px"}}>
           {/* [1] Profile button */}
           <button onClick={()=>setShowProfile(true)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,marginBottom:8,background:"transparent",border:"none",cursor:"pointer",padding:"2px 0"}}>
             <Avatar userId={curUser.id} users={users.length?users:[curUser]} size={26}/>
             <div style={{minWidth:0,textAlign:"left"}}>
-              <div style={{fontSize:11,fontWeight:500,color:"#ddd",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{curUser.name}</div>
+              <div style={{fontSize:11,fontWeight:500,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{curUser.name}</div>
               <div style={{fontSize:10,color:GOLD}}>{curUser.signature?"✍ มีลายเซ็น":"คลิกตั้งลายเซ็น"}</div>
             </div>
           </button>
-          <button onClick={()=>signOut(auth)} style={{width:"100%",padding:"7px",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>ออกจากระบบ</button>
+          <button onClick={()=>signOut(auth)} style={{width:"100%",padding:"7px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>ออกจากระบบ</button>
         </div>
       </div>
 
