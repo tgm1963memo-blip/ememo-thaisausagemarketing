@@ -976,6 +976,7 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
           <MemoPDFPreview
             memo={editMemo}
             users={users}
+            curUser={curUser}
             onSaveZones={zones => { setEditMemo(p=>({...p,signatureZones:zones})); setShowPreview(false); }}
             onClose={() => setShowPreview(false)}
           />
@@ -1386,15 +1387,16 @@ function injectPrintCss(){
   document.head.appendChild(s);
 }
 
-function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
+function MemoPDFPreview({ memo, users, curUser, onSaveZones, onClose }) {
   const [zones, setZones] = useState((memo.signatureZones||[]).map((z,i)=>({...z,x:z.x??(10+i*35),y:z.y??72})));
   const [printing, setPrinting] = useState(false);
-  const [dragInfo, setDragInfo] = useState(null); // {idx, startX, startY, origX, origY}
+  const [dragInfo, setDragInfo] = useState(null);
   const previewRef = useRef();
 
   useEffect(()=>{ injectPrintCss(); }, []);
 
-  const creator = users.find(u=>u.id===memo.createdBy)||{};
+  // ถ้า memo ยังไม่มี createdBy (กำลังสร้างใหม่) ให้ใช้ curUser แทน
+  const creator = users.find(u=>u.id===memo.createdBy) || curUser || {};
   const allUsers = users.filter(u=>u.active);
   const approvals = (memo.workflowLevels||[]).flatMap(lv=>lv.approvers||[]);
   const fmtD = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
