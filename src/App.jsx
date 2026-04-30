@@ -2139,7 +2139,7 @@ function injectPrintCss(){
   document.head.appendChild(s);
 }
 
-function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
+function MemoPDFPreview({ memo, users, curUser, onSaveZones, onClose }) {
   const [zones, setZones] = useState((memo.signatureZones||[]).map((z,i)=>({...z,x:z.x??(10+i*35),y:z.y??72})));
   const [printing, setPrinting] = useState(false);
   const [dragInfo, setDragInfo] = useState(null); // {idx, startX, startY, origX, origY}
@@ -2147,7 +2147,8 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
 
   useEffect(()=>{ injectPrintCss(); }, []);
 
-  const creator = users.find(u=>u.id===memo.createdBy)||{};
+  // fallback to curUser when memo.createdBy not set yet (new unsaved memo)
+  const creator = users.find(u=>u.id===memo.createdBy) || curUser || {};
   const allUsers = users.filter(u=>u.active);
   const approvals = (memo.workflowLevels||[]).flatMap(lv=>lv.approvers||[]);
   const fmtD = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
@@ -2224,8 +2225,7 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
       html+='<img src="'+memo.uploadedFile.data+'" style="max-width:100%;display:block;margin:0 auto 12px;"/>';
       if(memo.content) html+='<div style="font-size:12px;color:#374151;white-space:pre-wrap;margin-bottom:12px;">หมายเหตุ: '+memo.content+'</div>';
     } else {
-      // Meta table
-      const creator=users.find(u=>u.id===memo.createdBy)||{};
+      // Meta table (uses creator from outer scope — fallback to curUser already applied)
       html+='<table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:12px;"><tbody>';
       html+='<tr><td style="color:#6B7280;padding:3px 0;">เรื่อง:</td><td style="font-weight:600;" colspan="3">'+(memo.title||"")+'</td></tr>';
       html+='<tr><td style="color:#6B7280;padding:3px 0;">หมวดหมู่:</td><td>'+(memo.category||"")+'</td><td style="color:#6B7280;text-align:right;">ผู้สร้าง:</td><td style="text-align:right;">'+(creator.name||"-")+(creator.dept?" ("+creator.dept+")": "")+'</td></tr>';
