@@ -3,7 +3,7 @@ cd C:\Users\TSS\OneDrive\เดสก์ท็อป\ememo-firebase
 npm run dev
 
 git add .
-git commit -m "feat: เพิ่ม upload memo"
+git commit -m "Replace handlePrint, fix docNo display  and create table"
 git push origin main
 
 git add src/App.jsx vite.config.js

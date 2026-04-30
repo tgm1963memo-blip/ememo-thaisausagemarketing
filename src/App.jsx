@@ -1251,6 +1251,28 @@ function PdfBlobViewer({ dataUrl, name, height=600 }) {
   );
 }
 
+// ── TABLE STYLE injected once ─────────────────────────────────────────────────
+const EDITOR_TABLE_STYLE = `
+  .rich-ed-wrap [contenteditable] table {
+    border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px;
+  }
+  .rich-ed-wrap [contenteditable] table td,
+  .rich-ed-wrap [contenteditable] table th {
+    border: 1px solid #CBD5E1; padding: 5px 9px; min-width: 80px;
+    vertical-align: top; background: #fff;
+  }
+  .rich-ed-wrap [contenteditable] table th,
+  .rich-ed-wrap [contenteditable] table tr:first-child td {
+    background: #F1F5F9; font-weight: 600;
+  }
+  .rich-ed-wrap [contenteditable]:empty:before {
+    content: attr(data-placeholder); color: #9CA3AF; pointer-events: none;
+  }
+  .rich-ed-wrap [contenteditable]:focus { outline: none; }
+  /* Print: keep table borders */
+  @media print { .rich-ed-wrap table { border-collapse:collapse!important; } }
+`;
+
 function RichEditor({ value, onChange }) {
   const editorRef  = useRef();
   const imageRef   = useRef();
@@ -1258,111 +1280,125 @@ function RichEditor({ value, onChange }) {
   const [rows, setRows]   = useState(3);
   const [cols, setCols]   = useState(4);
 
-  // Sync plain-text value to contentEditable display
+  // Init: render HTML content (value may contain <table> from paste)
   useEffect(() => {
     if (!editorRef.current) return;
-    // Only update DOM if content differs (avoid cursor jump)
-    if (editorRef.current.innerText !== value) {
-      editorRef.current.innerText = value || "";
+    // value is stored as HTML internally
+    if (editorRef.current.innerHTML !== (value||"")) {
+      editorRef.current.innerHTML = value || "";
     }
-  }, []);
+  }, []); // only on mount
 
+  // Save HTML (preserves table structure)
   const handleInput = () => {
-    if (editorRef.current) onChange(editorRef.current.innerText || "");
+    if (editorRef.current) onChange(editorRef.current.innerHTML || "");
   };
 
-  // Paste handler: convert HTML table (from Excel) to markdown-style text
+  // Paste: keep HTML tables, strip other unsafe tags
   const handlePaste = e => {
     e.preventDefault();
     const html  = e.clipboardData.getData("text/html");
     const plain = e.clipboardData.getData("text/plain");
     if (html && html.includes("<table")) {
-      // Parse table → text grid
+      // Clean and insert the HTML table directly
       const tmp = document.createElement("div");
       tmp.innerHTML = html;
-      const rows = tmp.querySelectorAll("tr");
-      const lines = [];
-      rows.forEach(tr => {
-        const cells = [...tr.querySelectorAll("td,th")].map(c => c.innerText.trim().replace(/\n/g," "));
-        lines.push(cells.join("\t"));
+      // Remove styles/scripts, keep structure
+      tmp.querySelectorAll("style,script,meta,link").forEach(el=>el.remove());
+      tmp.querySelectorAll("*").forEach(el=>{
+        // Keep only border/width attrs on table cells
+        const keep = ["colspan","rowspan"];
+        [...el.attributes].forEach(a=>{ if(!keep.includes(a.name)) el.removeAttribute(a.name); });
       });
-      const txt = lines.join("\n");
-      document.execCommand("insertText", false, txt);
+      // Find the table(s)
+      const tables = tmp.querySelectorAll("table");
+      if (tables.length) {
+        tables.forEach(t => {
+          document.execCommand("insertHTML", false, t.outerHTML);
+        });
+      } else {
+        document.execCommand("insertText", false, plain);
+      }
     } else {
-      document.execCommand("insertText", false, plain);
+      // Plain text: preserve line breaks
+      const escaped = plain.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
+      document.execCommand("insertHTML", false, escaped);
     }
-    onChange(editorRef.current.innerText || "");
+    onChange(editorRef.current.innerHTML || "");
   };
 
-  // Insert image as base64 placeholder note
+  // Insert image as <img> tag
   const handleImageFile = e => {
     const f = e.target.files[0]; if (!f) return;
     const r = new FileReader();
     r.onload = ev => {
-      const tag = `[รูปภาพ:${f.name}]`;
-      document.execCommand("insertText", false, tag);
-      onChange(editorRef.current.innerText || "");
+      document.execCommand("insertHTML", false,
+        `<img src="${ev.target.result}" style="max-width:100%;margin:4px 0;border-radius:4px;" alt="${f.name}"/>`
+      );
+      onChange(editorRef.current.innerHTML || "");
     };
     r.readAsDataURL(f); e.target.value = "";
   };
 
-  // Insert blank table template
+  // Insert blank HTML table
   const insertTable = () => {
-    const header   = Array.from({length:cols},(_,i)=>`คอลัมน์ ${i+1}`).join("\t");
-    const dataRows = Array.from({length:rows},()=>Array(cols).fill("-").join("\t")).join("\n");
-    document.execCommand("insertText", false, "\n"+header+"\n"+dataRows+"\n");
-    onChange(editorRef.current.innerText || "");
+    const thead = `<tr>${Array.from({length:cols},(_,i)=>`<th>คอลัมน์ ${i+1}</th>`).join("")}</tr>`;
+    const tbody = Array.from({length:rows},()=>`<tr>${Array(cols).fill("<td>&nbsp;</td>").join("")}</tr>`).join("");
+    const tableHtml = `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table><p><br></p>`;
+    document.execCommand("insertHTML", false, tableHtml);
+    onChange(editorRef.current.innerHTML || "");
     setShowTable(false);
   };
 
   return (
-    <div style={{border:"1px solid #E5E7EB",borderRadius:8,overflow:"hidden"}}>
+    <div className="rich-ed-wrap" style={{border:"1px solid #E5E7EB",borderRadius:8,overflow:"hidden"}}>
+      <style>{EDITOR_TABLE_STYLE}</style>
       {/* Toolbar */}
       <div style={{display:"flex",gap:6,padding:"6px 10px",background:"#F9FAFB",borderBottom:"1px solid #E5E7EB",flexWrap:"wrap",alignItems:"center"}}>
-        <span style={{fontSize:11,color:"#9CA3AF",marginRight:4}}>เครื่องมือ:</span>
+        <button type="button" onClick={()=>{document.execCommand("bold");editorRef.current?.focus();}}
+          style={{padding:"2px 8px",fontSize:12,borderRadius:4,background:"#fff",border:"1px solid #E5E7EB",cursor:"pointer",fontWeight:700}}>B</button>
+        <button type="button" onClick={()=>{document.execCommand("italic");editorRef.current?.focus();}}
+          style={{padding:"2px 8px",fontSize:12,borderRadius:4,background:"#fff",border:"1px solid #E5E7EB",cursor:"pointer",fontStyle:"italic"}}>I</button>
+        <div style={{width:1,height:18,background:"#E5E7EB",margin:"0 2px"}}/>
         <button type="button" onClick={()=>imageRef.current?.click()}
-          style={{padding:"3px 9px",fontSize:11,borderRadius:5,background:"#fff",border:"1px solid #E5E7EB",cursor:"pointer",color:"#374151"}}>
-          🖼 แทรกรูปภาพ
+          style={{padding:"2px 8px",fontSize:11,borderRadius:4,background:"#fff",border:"1px solid #E5E7EB",cursor:"pointer",color:"#374151"}}>
+          🖼 รูปภาพ
         </button>
         <input ref={imageRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleImageFile}/>
         <div style={{position:"relative"}}>
           <button type="button" onClick={()=>setShowTable(s=>!s)}
-            style={{padding:"3px 9px",fontSize:11,borderRadius:5,background:"#fff",border:"1px solid #E5E7EB",cursor:"pointer",color:"#374151"}}>
-            📊 แทรกตาราง
+            style={{padding:"2px 8px",fontSize:11,borderRadius:4,background:"#fff",border:"1px solid #E5E7EB",cursor:"pointer",color:"#374151"}}>
+            📊 ตาราง
           </button>
           {showTable && (
-            <div style={{position:"absolute",top:"100%",left:0,zIndex:50,background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,padding:12,boxShadow:"0 4px 16px rgba(0,0,0,.12)",whiteSpace:"nowrap"}}>
-              <div style={{fontSize:11,color:"#6B7280",marginBottom:6}}>กำหนดขนาดตาราง</div>
+            <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:50,background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,padding:12,boxShadow:"0 4px 16px rgba(0,0,0,.12)",whiteSpace:"nowrap"}}>
+              <div style={{fontSize:11,color:"#6B7280",marginBottom:8,fontWeight:600}}>สร้างตาราง</div>
               <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
                 <span style={{fontSize:11}}>แถว</span>
                 <input type="number" value={rows} min={1} max={20} onChange={e=>setRows(+e.target.value)}
-                  style={{width:48,padding:"3px 6px",border:"1px solid #E5E7EB",borderRadius:4,fontSize:12}}/>
-                <span style={{fontSize:11}}>คอลัมน์</span>
+                  style={{width:50,padding:"4px 6px",border:"1px solid #E5E7EB",borderRadius:5,fontSize:12}}/>
+                <span style={{fontSize:11}}>× คอลัมน์</span>
                 <input type="number" value={cols} min={1} max={10} onChange={e=>setCols(+e.target.value)}
-                  style={{width:48,padding:"3px 6px",border:"1px solid #E5E7EB",borderRadius:4,fontSize:12}}/>
+                  style={{width:50,padding:"4px 6px",border:"1px solid #E5E7EB",borderRadius:5,fontSize:12}}/>
               </div>
               <button type="button" onClick={insertTable}
-                style={{width:"100%",padding:"5px",background:"#2563EB",color:"#fff",border:"none",borderRadius:5,fontSize:11,cursor:"pointer"}}>
-                แทรก
+                style={{width:"100%",padding:"6px",background:"#2563EB",color:"#fff",border:"none",borderRadius:5,fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                แทรกตาราง {rows}×{cols}
               </button>
+              <button type="button" onClick={()=>setShowTable(false)}
+                style={{width:"100%",marginTop:4,padding:"4px",background:"none",border:"none",fontSize:11,color:"#9CA3AF",cursor:"pointer"}}>ยกเลิก</button>
             </div>
           )}
         </div>
-        <span style={{fontSize:10,color:"#9CA3AF",marginLeft:"auto"}}>💡 วาง (Ctrl+V) จาก Excel ได้โดยตรง</span>
+        <span style={{fontSize:10,color:"#9CA3AF",marginLeft:"auto"}}>💡 วาง Ctrl+V จาก Excel ได้โดยตรง</span>
       </div>
-      {/* Editor area */}
+      {/* Editor */}
       <div ref={editorRef}
         contentEditable suppressContentEditableWarning
         onInput={handleInput} onPaste={handlePaste}
-        style={{
-          minHeight:180, padding:"10px 12px",
-          fontSize:13, lineHeight:1.8, fontFamily:"inherit",
-          outline:"none", whiteSpace:"pre-wrap", wordBreak:"break-word",
-          color:"#111", background:"#fff",
-        }}
-        data-placeholder="กรอกเนื้อหา... (วางตารางจาก Excel ได้โดยตรง)"
+        data-placeholder="กรอกเนื้อหา... วางตารางจาก Excel ได้โดยตรง"
+        style={{minHeight:200,padding:"10px 12px",fontSize:13,lineHeight:1.8,fontFamily:"inherit",color:"#111",background:"#fff",cursor:"text"}}
       />
-      <style>{`.rich-editor[data-placeholder]:empty:before{content:attr(data-placeholder);color:#9CA3AF;pointer-events:none;}`}</style>
     </div>
   );
 }
@@ -1586,9 +1622,18 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
           <Section title="ประวัติการดำเนินงาน">
             {[...(memo.history||[])].reverse().map((h,i)=>{
               const u=users.find(x=>x.id===h.by)||{};
-              return <div key={i} style={{display:"flex",gap:10,padding:"7px 0",borderBottom:i<(memo.history||[]).length-1?"1px solid #F3F4F6":"none"}}>
+              return <div key={i} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:i<(memo.history||[]).length-1?"1px solid #F9FAFB":"none"}}>
                 <Avatar userId={h.by} users={users} size={24}/>
-                <div style={{flex:1}}><div style={{fontSize:12,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}><span style={{fontWeight:500,color:"#374151"}}>{u.name||"-"}</span><span style={{color:ACOLOR[h.action]||"#9CA3AF",fontWeight:500}}>{ALABEL[h.action]||h.action}</span><span style={{color:"#9CA3AF",marginLeft:"auto"}}>{fmtShort(h.at)}</span></div>{h.comment&&<div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{h.comment}</div>}</div>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                    <span style={{fontSize:12,fontWeight:500,color:"#374151"}}>{u.name||"-"}</span>
+                    <span style={{fontSize:12,color:ACOLOR[h.action]||"#9CA3AF",fontWeight:500}}>{ALABEL[h.action]||h.action}</span>
+                    <span style={{fontSize:11,color:"#9CA3AF",marginLeft:"auto",whiteSpace:"nowrap"}}>
+                      {h.at ? new Date(h.at).toLocaleDateString("th-TH",{day:"2-digit",month:"short",year:"2-digit"})+" "+new Date(h.at).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"}) : "-"}
+                    </span>
+                  </div>
+                  {h.comment&&<div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{h.comment}</div>}
+                </div>
               </div>;
             })}
           </Section>
@@ -1963,10 +2008,8 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
       // Meta table
       const creator=users.find(u=>u.id===memo.createdBy)||{};
       html+='<table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:12px;"><tbody>';
-      html+='<tr><td style="width:90px;color:#6B7280;padding:3px 0;">เรื่อง:</td><td style="font-weight:600;">'+(memo.title||"")+'</td>';
-      html+='<td style="width:80px;color:#6B7280;text-align:right;">หมวดหมู่:</td><td style="text-align:right;">'+(memo.category||"")+'</td></tr>';
-      html+='<tr><td style="color:#6B7280;padding:3px 0;">ผู้สร้าง:</td><td>'+(creator.name||"-")+(creator.dept?" ("+creator.dept+")":"")+'</td>';
-      html+='<td style="color:#6B7280;text-align:right;">วันที่:</td><td style="text-align:right;">'+(memo.createdAt?fD(memo.createdAt):"")+'</td></tr>';
+      html+='<tr><td style="color:#6B7280;padding:3px 0;">เรื่อง:</td><td style="font-weight:600;" colspan="3">'+(memo.title||"")+'</td></tr>';
+      html+='<tr><td style="color:#6B7280;padding:3px 0;">หมวดหมู่:</td><td>'+(memo.category||"")+'</td><td style="color:#6B7280;text-align:right;">ผู้สร้าง:</td><td style="text-align:right;">'+(creator.name||"-")+(creator.dept?" ("+creator.dept+")": "")+'</td></tr>';
       html+='</tbody></table>';
       html+='<div style="border-top:1px solid #E5E7EB;margin-bottom:18px;"></div>';
       // Content
@@ -2092,31 +2135,40 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
                 {memo.content&&<div style={{fontSize:12,color:"#374151",marginTop:8,marginBottom:12,whiteSpace:"pre-wrap"}}>หมายเหตุ: {memo.content}</div>}
               </div>
             ) : (
-            <div style={{textAlign:"center",borderBottom:`2px solid ${GOLD}`,paddingBottom:12,marginBottom:20}}>
+            <div style={{display:"flex",alignItems:"center",gap:14,borderBottom:"2px solid #1E3A5F",paddingBottom:10,marginBottom:18}}>
               <img
                 src="https://img1.pic.in.th/images/logo-tss-03.png"
-                alt="TSS Logo"
-                style={{height:50,display:"block",margin:"0 auto 8px",objectFit:"contain"}}
+                alt="logo"
+                style={{height:52,objectFit:"contain",flexShrink:0,borderRadius:4}}
                 onError={e=>e.target.style.display="none"}
               />
-              <div style={{fontSize:14,fontWeight:700,color:"#111"}}>{COMPANY}</div>
-              <div style={{fontSize:20,fontWeight:700,marginTop:6}}>บันทึกข้อความ (Memo)</div>
-              <div style={{fontSize:11,color:"#6B7280",marginTop:3,fontFamily:"monospace"}}>เลขที่ {memo.docNo||("DRAFT-"+(memo.id||"").slice(-6).toUpperCase())}</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#1E3A5F"}}>{COMPANY}</div>
+                <div style={{fontSize:17,fontWeight:700,marginTop:2}}>บันทึกข้อความ (Memo)</div>
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1E3A5F"}}>{memo.docNo||("DRAFT-"+(memo.id||"").slice(-6).toUpperCase())}</div>
+                <div style={{fontSize:10,color:"#9CA3AF",marginTop:2}}>{memo.createdAt?new Date(memo.createdAt).toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"}):""}</div>
+              </div>
             </div>
             )} {/* end uploadedFile ternary */}
-            {!memo.uploadedFile && <><table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:12}}><tbody>
-              <tr><td style={{width:100,color:"#6B7280",paddingBottom:5}}>เรื่อง:</td><td style={{fontWeight:600,paddingBottom:5}}>{memo.title||<span style={{color:"#ccc"}}>ยังไม่ได้กรอก</span>}</td><td style={{width:80,color:"#6B7280",paddingBottom:5,textAlign:"right"}}>หมวดหมู่:</td><td style={{paddingBottom:5,textAlign:"right"}}>{memo.category||"-"}</td></tr>
-              <tr>
-                <td style={{color:"#6B7280"}}>ผู้สร้าง:</td>
-                <td style={{fontWeight:500}}>
-                  {creator.name
-                    ? <>{creator.name}{creator.dept ? <span style={{color:"#9CA3AF",fontWeight:400}}> ({creator.dept})</span> : null}</>
-                    : <span style={{color:"#ccc"}}>ไม่พบข้อมูล</span>}
-                </td>
-                <td style={{color:"#6B7280",textAlign:"right"}}>วันที่:</td>
-                <td style={{textAlign:"right"}}>{fmtD(memo.createdAt||new Date().toISOString())}</td>
-              </tr>
-            </tbody></table>
+            {!memo.uploadedFile && <><table style={{width:"100%",borderCollapse:"collapse",marginBottom:14,fontSize:12}}>
+              <tbody>
+                <tr>
+                  <td style={{width:80,color:"#6B7280",padding:"3px 0",verticalAlign:"top"}}>เรื่อง:</td>
+                  <td style={{fontWeight:600,padding:"3px 0"}} colSpan={3}>{memo.title||<span style={{color:"#ccc"}}>ยังไม่ได้กรอก</span>}</td>
+                </tr>
+                <tr>
+                  <td style={{color:"#6B7280",padding:"3px 0"}}>หมวดหมู่:</td>
+                  <td style={{padding:"3px 0"}}>{memo.category||"-"}</td>
+                  <td style={{width:70,color:"#6B7280",padding:"3px 0",textAlign:"right"}}>ผู้สร้าง:</td>
+                  <td style={{padding:"3px 0",textAlign:"right"}}>
+                    {creator.name||<span style={{color:"#ccc"}}>ไม่พบ</span>}
+                    {creator.dept&&<span style={{color:"#9CA3AF",fontWeight:400}}> ({creator.dept})</span>}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
             <div style={{borderTop:"1px solid #E5E7EB",marginBottom:20}}/>
             <div style={{fontSize:13,lineHeight:1.9,whiteSpace:"pre-wrap",color:"#374151",minHeight:120,marginBottom:28}}>
               {memo.content||<span style={{color:"#ccc",fontStyle:"italic"}}>เนื้อหาจะแสดงที่นี่...</span>}
