@@ -9,3 +9,7 @@ git push origin main
 git add src/App.jsx vite.config.js
 git commit -m "fix: update App and vite config"
 git push origin main
+
+git add .
+git commit -m "Add LOA"
+git push origin main

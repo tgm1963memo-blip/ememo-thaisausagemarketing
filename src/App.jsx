@@ -252,6 +252,8 @@ function printSystemPDF(memo, users) {
   html += '<div style="font-size:14px;font-weight:700;">บันทึกข้อความ (Memo)';
   const _docNo = memo.docNo || ('DRAFT-'+(memo.id||'').slice(-6).toUpperCase());
   html += ' <span style="font-size:10px;color:#6B7280;font-family:monospace;font-weight:400;">เลขที่ '+_docNo+'</span>';
+  html += '</div>';
+  html += '<div style="font-size:11px;color:#374151;margin-top:2px;">ผู้สร้าง: <span style="font-weight:600;">'+(creator.name||"-")+(creator.dept?' ('+creator.dept+')':'')+'</span></div>';
   html += '</div></div>';
   html += '<div style="font-size:9px;color:#9CA3AF;">'+fD(new Date().toISOString())+'</div>';
   html += '</div></div>';
@@ -2699,27 +2701,58 @@ export default function EMemo() {
     {k:"users",    l:"จัดการ User",  i:"◎",roles:["superadmin"]},
     {k:"settings", l:"ตั้งค่าระบบ", i:"⚙",roles:["superadmin"]},
   ];
+  const MOBILE_NAV=[
+    {k:"dashboard",l:"ภาพรวม", i:"⊞",roles:["superadmin","admin","user"]},
+    {k:"inbox",    l:"ขาเข้า", i:"↓",badge:inbox.length||null,roles:["superadmin","admin","user"]},
+    {k:"myMemos",  l:"ของฉัน", i:"◉",roles:["superadmin","admin","user"]},
+    {k:"search",   l:"ค้นหา",  i:"⌕",roles:["superadmin","admin","user"]},
+    {k:"settings", l:"ตั้งค่า",i:"⚙",roles:["superadmin"]},
+  ];
+
+  const mobileNavItems = MOBILE_NAV.filter(n=>n.roles.includes(curUser.role));
 
   return (
     <div style={{fontFamily:"'Noto Sans Thai','Sarabun',sans-serif",display:"flex",height:"100vh",overflow:"hidden"}}>
+      <style>{`
+        .app-sidebar{display:flex;flex-direction:column;flex-shrink:0;}
+        .app-mobile-header{display:none;position:fixed;top:0;left:0;right:0;z-index:50;background:${BLACK};color:#fff;padding:10px 14px;align-items:center;justify-content:space-between;border-bottom:1px solid #222;height:52px;box-sizing:border-box;}
+        .app-mobile-bottomnav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:50;background:${BLACK};border-top:1px solid #222;height:60px;align-items:stretch;}
+        .app-main{flex:1;overflow-y:auto;background:#F9FAFB;}
+        @media(max-width:640px){
+          .app-sidebar{display:none!important;}
+          .app-mobile-header{display:flex!important;}
+          .app-mobile-bottomnav{display:flex!important;}
+          .app-main{padding-top:52px;padding-bottom:64px;}
+          .syncing-ind{left:12px!important;bottom:72px!important;}
+        }
+      `}</style>
       <Toast t={toast}/>
-      {syncing&&<div style={{position:"fixed",bottom:16,left:216,background:"#FFFBEB",color:"#B45309",border:"1px solid #FCD34D",borderRadius:6,padding:"4px 10px",fontSize:11,zIndex:100}}>⟳ กำลังบันทึก...</div>}
+      {syncing&&<div className="syncing-ind" style={{position:"fixed",bottom:16,left:216,background:"#FFFBEB",color:"#B45309",border:"1px solid #FCD34D",borderRadius:6,padding:"4px 10px",fontSize:11,zIndex:100}}>⟳ กำลังบันทึก...</div>}
       {modal&&<ActionModal modal={modal} onClose={()=>setModal(null)} onApprove={(c,sig)=>approveMemo(modal.memo,c,sig)} onReject={c=>rejectMemo(modal.memo,c)} curUser={curUser}/>}
       {showProfile&&<ProfileModal curUser={curUser} onClose={()=>setShowProfile(false)} showToast={showToast}/>}
       {showTplManager&&can(curUser.role,"settings")&&<DocxTemplateManager templates={pdfTemplates} onSave={async tpls=>{await writePdfTemplates(tpls);showToast("บันทึก Template แล้ว");setShowTplManager(false);}} onClose={()=>setShowTplManager(false)}/>}
       {showSigZones&&editMemo&&<SignatureZonesModal memo={editMemo} users={users} curUser={curUser} onSave={saveSigZones} onClose={()=>setShowSigZones(false)}/>}
       {showRouteManager&&<RouteTemplateModal users={users} curUser={curUser} routeTemplates={routeTemplates} onSave={async routes=>{await writeRouteTemplates(routes);showToast("บันทึก Route แล้ว");}} onClose={()=>setShowRouteManager(false)}/>}
 
-      {/* Sidebar */}
-      <div style={{width:210,background:BLACK,color:"#fff",display:"flex",flexDirection:"column",flexShrink:0}}>
+      {/* Mobile Top Header */}
+      <div className="app-mobile-header">
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{width:26,height:26,background:GOLD,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:BLACK,fontWeight:700}}>E</div>
+          <span style={{fontSize:13,fontWeight:600,color:GOLD}}>E-Memo</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={startCreate} style={{...BTN_GOLD,padding:"6px 12px",fontSize:12,borderRadius:6}}>+ สร้าง Memo</button>
+          <button onClick={()=>setShowProfile(true)} style={{background:"transparent",border:"none",cursor:"pointer",padding:0}}>
+            <Avatar userId={curUser.id} users={users.length?users:[curUser]} size={28}/>
+          </button>
+        </div>
+      </div>
+
+      {/* Desktop Sidebar */}
+      <div className="app-sidebar" style={{width:210,background:BLACK,color:"#fff"}}>
         <div style={{padding:"16px 16px 12px",borderBottom:"1px solid #222"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <img
-              src="https://img1.pic.in.th/images/logo-tss-03.png"
-              alt="TSS Logo"
-              style={{width:28,height:28,borderRadius:6,objectFit:"cover",flexShrink:0,background:GOLD}}
-              onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}
-            />
+            <img src="https://img1.pic.in.th/images/logo-tss-03.png" alt="TSS Logo" style={{width:28,height:28,borderRadius:6,objectFit:"cover",flexShrink:0,background:GOLD}} onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
             <div style={{width:28,height:28,background:GOLD,borderRadius:6,display:"none",alignItems:"center",justifyContent:"center",fontSize:14,color:BLACK,fontWeight:700,flexShrink:0}}>E</div>
             <div><div style={{fontSize:12,fontWeight:600,color:GOLD,letterSpacing:.3}}>E-Memo System</div><div style={{fontSize:9,color:"#555",lineHeight:1.3,marginTop:1}}>ไทยซอสเซส มาร์เก็ตติ้ง</div></div>
           </div>
@@ -2735,7 +2768,6 @@ export default function EMemo() {
           ))}
         </nav>
         <div style={{borderTop:"1px solid #222",padding:"10px 12px"}}>
-          {/* [1] Profile button */}
           <button onClick={()=>setShowProfile(true)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,marginBottom:8,background:"transparent",border:"none",cursor:"pointer",padding:"2px 0"}}>
             <Avatar userId={curUser.id} users={users.length?users:[curUser]} size={26}/>
             <div style={{minWidth:0,textAlign:"left"}}>
@@ -2747,8 +2779,8 @@ export default function EMemo() {
         </div>
       </div>
 
-      {/* Main */}
-      <div style={{flex:1,overflowY:"auto",background:"#F9FAFB"}}>
+      {/* Main Content */}
+      <div className="app-main">
         {view==="dashboard"&&<Dashboard memoList={visibleMemos} users={users} curUser={curUser} inboxCount={inbox.length} onOpen={openMemo}/>}
         {view==="inbox"    &&<MemoListView memoList={inbox}   users={users} title="กล่องขาเข้า" subtitle={`${inbox.length} รายการรอการอนุมัติ`} curUser={curUser} onOpen={openMemo} highlight/>}
         {view==="myMemos"  &&<MemoListView memoList={myMemos} users={users} title="Memo ของฉัน" curUser={curUser} onOpen={openMemo} onRecall={recallMemo} onEdit={startEdit}/>}
@@ -2763,6 +2795,21 @@ export default function EMemo() {
         )}
         {view==="create"&&editMemo&&<CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} routeTemplates={routeTemplates} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"} onOpenSigZones={()=>setShowSigZones(true)}/>}
         {view==="detail"&&selMemo&&<DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplates={pdfTemplates} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal} onCloneMemo={cloneMemo} onApproverAddLevel={approverAddLevel}/>}
+      </div>
+
+      {/* Mobile Bottom Navigation */}
+      <div className="app-mobile-bottomnav">
+        {mobileNavItems.map(n=>(
+          <button key={n.k} onClick={()=>{ setView(n.k); pushHistory(n.k); }}
+            style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,
+              background:"transparent",border:"none",cursor:"pointer",
+              color:view===n.k?GOLD:"#666",padding:"6px 0",position:"relative",fontFamily:"inherit"}}>
+            <span style={{fontSize:17,lineHeight:1}}>{n.i}</span>
+            <span style={{fontSize:9,fontWeight:view===n.k?600:400}}>{n.l}</span>
+            {n.badge?<span style={{position:"absolute",top:4,right:"50%",transform:"translateX(10px)",background:"#DC2626",color:"#fff",borderRadius:10,fontSize:9,padding:"1px 4px",fontWeight:600,lineHeight:1.2}}>{n.badge}</span>:null}
+            {view===n.k&&<div style={{position:"absolute",top:0,left:"50%",transform:"translateX(-50%)",width:24,height:2,background:GOLD,borderRadius:1}}/>}
+          </button>
+        ))}
       </div>
     </div>
   );
