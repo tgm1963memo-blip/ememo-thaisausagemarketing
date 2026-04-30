@@ -98,6 +98,7 @@ const patchUser        = (id, p)   => update(ref(db, `${DATA_PATH}/users/${id}`)
 const writeNotifyConfig= (cfg)     => set(ref(db, `${DATA_PATH}/notifyConfig`), cfg);
 const writePdfTemplates= (tpls)    => set(ref(db, `${DATA_PATH}/pdfTemplates`), tpls);
 const writeDocCounters = (ctrs)    => set(ref(db, `${DATA_PATH}/docCounters`), ctrs);
+const writeRouteTemplates=(routes) => set(ref(db, `${DATA_PATH}/routeTemplates`), routes||[]);
 
 async function assignDocNo(memo, users, docCounters) {
   const creator = users.find(u => u.id === memo.createdBy) || {};
@@ -668,9 +669,11 @@ function MemoRow({ memo, users, onClick, highlight, curUser, onRecall, onEdit })
 }
 
 function ActionModal({ modal, onClose, onApprove, onReject, curUser }) {
-  const [comment,  setComment]  = useState("");
-  const [sigMode,  setSigMode]  = useState("saved"); // "saved" | "draw"
-  const [drawnSig, setDrawnSig] = useState(null);
+  const [comment,      setComment]      = useState("");
+  const [lineComments, setLineComments] = useState({}); // { lineIdx: "text" }
+  const [showLines,    setShowLines]    = useState(false);
+  const [sigMode,      setSigMode]      = useState("saved");
+  const [drawnSig,     setDrawnSig]     = useState(null);
   const canvasRef = useRef();
   const drawing   = useRef(false);
   const isA       = modal.type === "approve";
@@ -678,82 +681,63 @@ function ActionModal({ modal, onClose, onApprove, onReject, curUser }) {
   const nowTh     = now.toLocaleDateString("th-TH",{weekday:"long",day:"2-digit",month:"long",year:"numeric"})
                   + " " + now.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
 
-  // Canvas drawing helpers
+  // Extract text lines from memo content (strip HTML tags for display)
+  const rawContent = modal.memo.content || "";
+  const contentLines = rawContent.replace(/<[^>]+>/g," ").split("\n").map(l=>l.trim()).filter(l=>l.length>0).slice(0,40);
+
   const getPos = (e, canvas) => {
-    const r = canvas.getBoundingClientRect();
-    const src = e.touches?.[0] || e;
+    const r = canvas.getBoundingClientRect(); const src = e.touches?.[0] || e;
     return { x:(src.clientX-r.left)*(canvas.width/r.width), y:(src.clientY-r.top)*(canvas.height/r.height) };
   };
-  const startDraw = e => {
-    drawing.current = true;
-    const c = canvasRef.current; const ctx = c.getContext("2d");
-    const p = getPos(e,c); ctx.beginPath(); ctx.moveTo(p.x,p.y);
-    e.preventDefault();
-  };
-  const draw = e => {
-    if(!drawing.current) return;
-    const c = canvasRef.current; const ctx = c.getContext("2d");
-    const p = getPos(e,c);
-    ctx.lineWidth=2.2; ctx.lineCap="round"; ctx.strokeStyle="#111";
-    ctx.lineTo(p.x,p.y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(p.x,p.y);
-    e.preventDefault();
-  };
-  const endDraw = () => {
-    drawing.current = false;
-    setDrawnSig(canvasRef.current?.toDataURL("image/png")||null);
-  };
-  const clearCanvas = () => {
-    const c = canvasRef.current; if(!c) return;
-    c.getContext("2d").clearRect(0,0,c.width,c.height);
-    setDrawnSig(null);
-  };
+  const startDraw = e => { drawing.current=true; const c=canvasRef.current; const ctx=c.getContext("2d"); const p=getPos(e,c); ctx.beginPath(); ctx.moveTo(p.x,p.y); e.preventDefault(); };
+  const draw      = e => { if(!drawing.current)return; const c=canvasRef.current; const ctx=c.getContext("2d"); const p=getPos(e,c); ctx.lineWidth=2.2; ctx.lineCap="round"; ctx.strokeStyle="#111"; ctx.lineTo(p.x,p.y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(p.x,p.y); e.preventDefault(); };
+  const endDraw   = () => { drawing.current=false; setDrawnSig(canvasRef.current?.toDataURL("image/png")||null); };
+  const clearCanvas = () => { const c=canvasRef.current; if(!c)return; c.getContext("2d").clearRect(0,0,c.width,c.height); setDrawnSig(null); };
 
   const activeSig = sigMode==="draw" ? drawnSig : (curUser.signature||null);
+  const activeLineComments = Object.entries(lineComments).filter(([,v])=>v.trim()).reduce((o,[k,v])=>({...o,[k]:v}),{});
 
   const handleConfirm = () => {
     const sigToUse = activeSig || null;
-    isA ? onApprove(comment, sigToUse) : onReject(comment);
+    const fullComment = [
+      comment,
+      ...Object.entries(activeLineComments).map(([i,c])=>`[บรรทัด ${+i+1}] ${c}`)
+    ].filter(Boolean).join("\n");
+    isA ? onApprove(fullComment, sigToUse) : onReject(fullComment);
   };
 
   return (
     <div style={{position:"fixed",inset:0,zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.55)"}}>
-      <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:14,padding:24,width:420,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.25)"}}>
-        {/* Header */}
+      <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:14,padding:24,width:480,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.25)"}}>
         <div style={{fontSize:15,fontWeight:700,marginBottom:2,color:"#111"}}>{isA?"✅ ยืนยันการอนุมัติ":"❌ ยืนยันการปฏิเสธ"}</div>
         <div style={{fontSize:12,color:"#6B7280",marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{modal.memo.title}</div>
-
-        {/* Timestamp */}
         <div style={{display:"inline-flex",alignItems:"center",gap:5,background:"#F0FDF4",border:"1px solid #A7F3D0",borderRadius:6,padding:"4px 10px",fontSize:11,color:"#065F46",marginBottom:14}}>
           🕐 {nowTh}
         </div>
 
-        {/* Signature section (approve only) */}
+        {/* Signature */}
         {isA && (
           <div style={{marginBottom:14}}>
             <div style={{fontSize:11,fontWeight:700,color:"#6B7280",marginBottom:6,textTransform:"uppercase",letterSpacing:.4}}>ลายเซ็น</div>
-            {/* Tab */}
             {curUser.signature && (
               <div style={{display:"flex",gap:4,marginBottom:8}}>
-                {[["saved","ใช้ลายเซ็นที่บันทึก"],["draw","วาดใหม่"]].map(([k,l])=>(
+                {[["saved","ใช้ที่บันทึก"],["draw","วาดใหม่"]].map(([k,l])=>(
                   <button key={k} onClick={()=>setSigMode(k)} style={{flex:1,padding:"5px 0",fontSize:11,fontWeight:sigMode===k?600:400,background:sigMode===k?"#111":"#F9FAFB",color:sigMode===k?"#fff":"#6B7280",border:"1px solid #E5E7EB",borderRadius:5,cursor:"pointer"}}>{l}</button>
                 ))}
               </div>
             )}
-            {/* Saved sig */}
             {sigMode==="saved" && curUser.signature && (
               <div style={{border:"1px solid #E5E7EB",borderRadius:8,padding:8,background:"#FAFAFA",textAlign:"center"}}>
                 <img src={curUser.signature} alt="sig" style={{maxHeight:60,maxWidth:"100%",objectFit:"contain"}}/>
               </div>
             )}
-            {/* Draw canvas */}
-            {(sigMode==="draw" || !curUser.signature) && (
+            {(sigMode==="draw"||!curUser.signature) && (
               <div>
-                <canvas ref={canvasRef} width={360} height={100}
+                <canvas ref={canvasRef} width={420} height={90}
                   style={{border:"1.5px dashed #D1D5DB",borderRadius:8,background:"#fff",cursor:"crosshair",touchAction:"none",width:"100%",display:"block"}}
                   onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
-                  onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
-                />
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
+                  onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}/>
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
                   <span style={{fontSize:10,color:"#9CA3AF"}}>วาดลายเซ็นในกล่องนี้</span>
                   <button onClick={clearCanvas} style={{fontSize:10,color:"#DC2626",background:"none",border:"none",cursor:"pointer",padding:0}}>ล้าง</button>
                 </div>
@@ -762,15 +746,170 @@ function ActionModal({ modal, onClose, onApprove, onReject, curUser }) {
           </div>
         )}
 
-        <Field label="ความคิดเห็น (ถ้ามี)">
-          <textarea value={comment} onChange={e=>setComment(e.target.value)} rows={3} style={{...IS,resize:"none",fontFamily:"inherit"}}/>
+        {/* General comment */}
+        <Field label="ความคิดเห็นทั่วไป">
+          <textarea value={comment} onChange={e=>setComment(e.target.value)} rows={2} style={{...IS,resize:"none",fontFamily:"inherit"}}/>
         </Field>
-        <div style={{display:"flex",gap:8,marginTop:8}}>
+
+        {/* Line-by-line comment toggle */}
+        {contentLines.length > 0 && (
+          <div style={{marginBottom:12}}>
+            <button onClick={()=>setShowLines(p=>!p)}
+              style={{fontSize:11,color:"#1D4ED8",background:"none",border:"1px solid #BFDBFE",borderRadius:5,padding:"4px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+              💬 {showLines?"ซ่อน":"แสดง"}การ comment รายบรรทัด
+              {Object.keys(activeLineComments).length>0&&<span style={{background:"#1D4ED8",color:"#fff",borderRadius:10,fontSize:10,padding:"1px 5px"}}>{Object.keys(activeLineComments).length}</span>}
+            </button>
+            {showLines && (
+              <div style={{marginTop:8,border:"1px solid #E5E7EB",borderRadius:8,overflow:"hidden",maxHeight:260,overflowY:"auto"}}>
+                {contentLines.map((line,i)=>(
+                  <div key={i} style={{borderBottom:i<contentLines.length-1?"1px solid #F3F4F6":"none",padding:"6px 10px",background:lineComments[i]?"#EFF6FF":"#fff"}}>
+                    <div style={{fontSize:11,color:"#374151",marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>
+                      <span style={{color:"#9CA3AF",fontSize:10,marginRight:5}}>{i+1}.</span>{line}
+                    </div>
+                    <input
+                      value={lineComments[i]||""}
+                      onChange={e=>setLineComments(p=>({...p,[i]:e.target.value}))}
+                      placeholder="comment บรรทัดนี้..."
+                      style={{width:"100%",fontSize:11,padding:"3px 7px",border:"1px solid #E5E7EB",borderRadius:4,boxSizing:"border-box",fontFamily:"inherit",background:lineComments[i]?"#EFF6FF":"#F9FAFB"}}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{display:"flex",gap:8,marginTop:4}}>
           <button onClick={handleConfirm} style={{flex:1,padding:10,background:isA?GOLD:"#DC2626",color:isA?BLACK:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>
             {isA?"✓ อนุมัติ":"✕ ปฏิเสธ"}
           </button>
           <button onClick={onClose} style={{flex:1,padding:10,background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:13,cursor:"pointer"}}>ยกเลิก</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Route Template Manager ────────────────────────────────────────────────────
+// User สร้าง/แก้ไข route template ที่ใช้บ่อย แล้วโหลดเข้า CreateView ได้เลย
+function RouteTemplateModal({ users, curUser, routeTemplates, onSave, onClose }) {
+  const myRoutes = (routeTemplates||[]).filter(r=>r.createdBy===curUser.id);
+  const [editing, setEditing] = useState(null); // null | route object
+  const blank = () => ({ id:"rt"+Date.now(), name:"", desc:"", createdBy:curUser.id, levels:[] });
+
+  const saveRoute = async (r) => {
+    if(!r.name.trim()){ alert("กรุณาใส่ชื่อ Route"); return; }
+    if(!r.levels.length){ alert("กรุณาเพิ่มลำดับอนุมัติอย่างน้อย 1 ลำดับ"); return; }
+    const updated = [...(routeTemplates||[]).filter(x=>x.id!==r.id), r];
+    await onSave(updated);
+    setEditing(null);
+  };
+  const deleteRoute = async (id) => {
+    await onSave((routeTemplates||[]).filter(r=>r.id!==id));
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.6)"}}>
+      <div style={{background:"#fff",borderRadius:14,width:600,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 80px rgba(0,0,0,.3)"}}>
+        <div style={{padding:"20px 24px 0",borderBottom:"1px solid #F3F4F6",paddingBottom:16}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div>
+              <div style={{fontSize:15,fontWeight:700,color:"#111"}}>🔀 Route การอนุมัติที่ใช้บ่อย</div>
+              <div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>บันทึก workflow ที่ใช้บ่อยไว้ใช้ซ้ำได้ทันที</div>
+            </div>
+            <button onClick={onClose} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"#9CA3AF"}}>✕</button>
+          </div>
+        </div>
+        <div style={{padding:"16px 24px"}}>
+          {myRoutes.length===0 && !editing && (
+            <div style={{textAlign:"center",padding:"32px 0",color:"#9CA3AF",fontSize:13,border:"2px dashed #E5E7EB",borderRadius:10,marginBottom:12}}>
+              ยังไม่มี Route — กดสร้างใหม่
+            </div>
+          )}
+          {!editing && myRoutes.map(r=>(
+            <div key={r.id} style={{border:"1px solid #F3F4F6",borderRadius:10,padding:"12px 14px",marginBottom:8,display:"flex",alignItems:"flex-start",gap:10}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:600,color:"#111"}}>{r.name}</div>
+                {r.desc&&<div style={{fontSize:11,color:"#9CA3AF",marginTop:1}}>{r.desc}</div>}
+                <div style={{display:"flex",gap:4,marginTop:6,flexWrap:"wrap"}}>
+                  {(r.levels||[]).map((lv,i)=>(
+                    <span key={i} style={{fontSize:10,background:"#F3F4F6",color:"#374151",borderRadius:4,padding:"2px 7px"}}>
+                      {i+1}. {(lv.approvers||[]).map(a=>a.name||a.email||"?").join(", ")}
+                      {lv.mode==="any"&&" (คนใดคนหนึ่ง)"}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div style={{display:"flex",gap:4,flexShrink:0}}>
+                <button onClick={()=>setEditing({...r,levels:r.levels.map(lv=>({...lv,approvers:[...lv.approvers]}))})} style={{...BTN_GRAY,fontSize:11}}>แก้ไข</button>
+                <button onClick={()=>deleteRoute(r.id)} style={{padding:"4px 8px",background:"#FFF1F1",color:"#DC2626",border:"1px solid #FECACA",borderRadius:5,fontSize:11,cursor:"pointer"}}>ลบ</button>
+              </div>
+            </div>
+          ))}
+          {!editing && (
+            <button onClick={()=>setEditing(blank())} style={{width:"100%",padding:"10px",background:"#F9FAFB",color:"#374151",border:"2px dashed #E5E7EB",borderRadius:8,fontSize:12,cursor:"pointer",marginTop:4}}>
+              + สร้าง Route ใหม่
+            </button>
+          )}
+          {editing && (
+            <RouteEditor route={editing} users={users} curUser={curUser}
+              onChange={setEditing} onSave={()=>saveRoute(editing)} onCancel={()=>setEditing(null)}/>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RouteEditor({ route, users, curUser, onChange, onSave, onCancel }) {
+  const up = (k,v) => onChange(p=>({...p,[k]:v}));
+  const setLevels = fn => onChange(p=>({...p,levels:typeof fn==="function"?fn(p.levels||[]):fn}));
+  const addLevel = () => setLevels(p=>[...p,{id:"lv"+Date.now(),mode:"all",approvers:[]}]);
+  const remLevel = i  => setLevels(p=>p.filter((_,j)=>j!==i));
+  const addApp   = (li,uid) => {
+    const u=users.find(x=>x.id===uid); if(!u) return;
+    setLevels(p=>p.map((lv,j)=>j!==li?lv:{...lv,approvers:[...(lv.approvers||[]),{userId:u.id,name:u.name,email:u.email,status:"pending"}]}));
+  };
+  const remApp = (li,ai) => setLevels(p=>p.map((lv,j)=>j!==li?lv:{...lv,approvers:(lv.approvers||[]).filter((_,k)=>k!==ai)}));
+
+  return (
+    <div style={{border:"1px solid #E5E7EB",borderRadius:10,padding:16,background:"#FAFAFA"}}>
+      <div style={{fontSize:13,fontWeight:700,color:"#111",marginBottom:12}}>{route.id.startsWith("rt")?"สร้าง Route ใหม่":"แก้ไข Route"}</div>
+      <Field label="ชื่อ Route *"><input value={route.name||""} onChange={e=>up("name",e.target.value)} placeholder="เช่น: อนุมัติงบแผนก IT" style={IS}/></Field>
+      <Field label="คำอธิบาย"><input value={route.desc||""} onChange={e=>up("desc",e.target.value)} placeholder="รายละเอียดเพิ่มเติม..." style={IS}/></Field>
+      <div style={{fontSize:11,fontWeight:600,color:"#6B7280",marginBottom:6,marginTop:4}}>ลำดับการอนุมัติ</div>
+      {(route.levels||[]).map((lv,li)=>(
+        <div key={lv.id||li} style={{border:"1px solid #E5E7EB",borderRadius:8,padding:10,marginBottom:8,background:"#fff"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <span style={{fontSize:11,fontWeight:600,color:"#374151"}}>ลำดับ {li+1}</span>
+            <select value={lv.mode||"all"} onChange={e=>setLevels(p=>p.map((l,j)=>j===li?{...l,mode:e.target.value}:l))}
+              style={{fontSize:11,padding:"2px 6px",border:"1px solid #E5E7EB",borderRadius:4,background:"#F9FAFB"}}>
+              <option value="all">ทุกคนต้องอนุมัติ</option>
+              <option value="any">คนใดคนหนึ่งอนุมัติ</option>
+            </select>
+            <button onClick={()=>remLevel(li)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#DC2626",fontSize:12}}>✕ ลบ</button>
+          </div>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:6}}>
+            {(lv.approvers||[]).map((ap,ai)=>(
+              <span key={ai} style={{fontSize:11,background:"#F3F4F6",borderRadius:4,padding:"2px 8px",display:"flex",alignItems:"center",gap:4}}>
+                {ap.name||ap.email}
+                <button onClick={()=>remApp(li,ai)} style={{background:"none",border:"none",cursor:"pointer",color:"#9CA3AF",fontSize:10,padding:0}}>✕</button>
+              </span>
+            ))}
+          </div>
+          <select defaultValue="" onChange={e=>{addApp(li,e.target.value);e.target.value="";}}
+            style={{fontSize:11,padding:"4px 8px",border:"1px solid #E5E7EB",borderRadius:5,width:"100%",background:"#F9FAFB"}}>
+            <option value="" disabled>+ เพิ่มผู้อนุมัติ</option>
+            {users.filter(u=>u.active&&!lv.approvers?.find(a=>a.userId===u.id)).map(u=>(
+              <option key={u.id} value={u.id}>{u.name} ({u.dept||"-"})</option>
+            ))}
+          </select>
+        </div>
+      ))}
+      <button onClick={addLevel} style={{width:"100%",padding:"7px",background:"transparent",border:"1px dashed #D1D5DB",borderRadius:6,fontSize:11,cursor:"pointer",color:"#6B7280",marginBottom:10}}>+ เพิ่มลำดับ</button>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={onSave} style={{...BTN_GOLD,flex:1,padding:"9px"}}>💾 บันทึก Route</button>
+        <button onClick={onCancel} style={{flex:1,padding:"9px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button>
       </div>
     </div>
   );
@@ -1403,7 +1542,7 @@ function RichEditor({ value, onChange }) {
   );
 }
 
-function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSubmit, onCancel, isRecall, onOpenSigZones }) {
+function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, routeTemplates, onSubmit, onCancel, isRecall, onOpenSigZones }) {
   const fileRef      = useRef();
   const memoFileRef  = useRef();
   const [showPreview, setShowPreview] = useState(false);
@@ -1516,6 +1655,22 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
         </div>
         <div>
           <Section title="ขั้นตอนการอนุมัติ">
+            {/* Route Template Picker */}
+            {(routeTemplates||[]).filter(r=>r.createdBy===curUser.id).length > 0 && (
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:10,color:"#9CA3AF",marginBottom:4}}>โหลดจาก Route ที่บันทึกไว้:</div>
+                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                  {(routeTemplates||[]).filter(r=>r.createdBy===curUser.id).map(r=>(
+                    <button key={r.id} onClick={()=>{
+                      const lvs = (r.levels||[]).map(lv=>({...lv,id:"lv"+Date.now()+Math.random(),approvers:(lv.approvers||[]).map(ap=>({...ap,status:"pending",comment:"",actionAt:null}))}));
+                      setLevels(lvs);
+                    }} style={{fontSize:11,padding:"3px 10px",background:"#F5F3FF",color:"#7C3AED",border:"1px solid #DDD6FE",borderRadius:5,cursor:"pointer"}}>
+                      🔀 {r.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <WorkflowLevelBuilder levels={levels} setLevels={setLevels} users={users} curUser={curUser}/>
           </Section>
           <NotifyPanel notify={editMemo.notify||{emailList:[],postToTeams:false,postToPowerAuto:false,postToLine:false}} setNotify={setNotify} users={users} notifyConfig={notifyConfig}/>
@@ -1531,9 +1686,12 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
   );
 }
 
-function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, onRecall, onEdit, onAddFile, onRemoveFile, setModal }) {
+function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, onRecall, onEdit, onAddFile, onRemoveFile, setModal, onCloneMemo, onApproverAddLevel }) {
   const fileRef   = useRef();
-  const [showPicker, setShowPicker] = useState(false);
+  const [showPicker,   setShowPicker]   = useState(false);
+  const [showAddLevel, setShowAddLevel] = useState(false);
+  const [newLvUsers,   setNewLvUsers]   = useState([]);
+  const [newLvMode,    setNewLvMode]    = useState("all");
   const isCreator = memo.createdBy===curUser.id;
 
   // [3][7] find if current user can approve in the active level
@@ -1541,8 +1699,8 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
   const myStep         = activeLevel?.approvers?.find(ap=>(ap.userId&&ap.userId===curUser.id)||(ap.email&&ap.email===curUser.email));
   const canApprove     = memo.status==="pending" && !!myStep && myStep.status==="pending" && can(curUser.role,"approve");
 
-  const ALABEL={created:"สร้าง",submitted:"ส่งอนุมัติ",approved:"อนุมัติ",rejected:"ปฏิเสธ",recalled:"เรียกคืน",edited:"แก้ไข",resubmitted:"ส่งกลับ"};
-  const ACOLOR={approved:"#065F46",rejected:"#991B1B",recalled:"#1E40AF",submitted:"#B45309"};
+  const ALABEL={created:"สร้าง",submitted:"ส่งอนุมัติ",approved:"อนุมัติ",rejected:"ปฏิเสธ",recalled:"เรียกคืน",edited:"แก้ไข",resubmitted:"ส่งกลับ",addedLevel:"เพิ่มลำดับ"};
+  const ACOLOR={approved:"#065F46",rejected:"#991B1B",recalled:"#1E40AF",submitted:"#B45309",addedLevel:"#7C3AED"};
   const handleFile=e=>{const f=e.target.files[0];if(f)onAddFile(f);e.target.value="";};
   const notify=memo.notify||{};
   const notifySummary=[
@@ -1552,6 +1710,17 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
     ...(notifyConfig.line?.enabled&&notify.postToLine?["🟢 LINE Group"]:[]),
   ];
   const tplList=Object.values(pdfTemplates||{}).filter(t=>t.fileBase64);
+
+  // Feature 4: approver adds a next level
+  const addLvUser = (uid) => {
+    const u=users.find(x=>x.id===uid); if(!u||newLvUsers.find(x=>x.userId===uid)) return;
+    setNewLvUsers(p=>[...p,{userId:u.id,name:u.name,email:u.email,status:"pending"}]);
+  };
+  const submitAddLevel = () => {
+    if(!newLvUsers.length){ alert("กรุณาเลือกผู้อนุมัติอย่างน้อย 1 คน"); return; }
+    onApproverAddLevel(memo, {mode:newLvMode, approvers:newLvUsers});
+    setShowAddLevel(false); setNewLvUsers([]); setNewLvMode("all");
+  };
 
   return (
     <div style={{padding:24}}>
@@ -1646,8 +1815,6 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
           </Section>
           {notifySummary.length>0&&<Section title="แจ้งเตือนเมื่ออนุมัติ"><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{notifySummary.map(s=><span key={s} style={{fontSize:11,background:"#F9FAFB",border:"1px solid #F3F4F6",borderRadius:5,padding:"3px 8px"}}>{s}</span>)}</div></Section>}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {/* ── ข้อ 3 & 6: แสดงปุ่ม PDF preview/export ทุก status ยกเว้น draft/recalled ── */}
-            {/* PDF export — ใช้ system template ถ้ายังไม่มี custom template */}
             {(memo.status==="approved"||memo.status==="pending"||memo.status==="rejected")&&(
               tplList.length>0 ? (
                 <button onClick={()=>{if(tplList.length===1)exportMemoDocx(memo,users,tplList[0]);else setShowPicker(true);}}
@@ -1661,7 +1828,57 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
                 </button>
               )
             )}
-            {canApprove&&<><button onClick={()=>setModal({type:"approve",memo})} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ อนุมัติ</button><button onClick={()=>setModal({type:"reject",memo})} style={{padding:11,background:"#FFF1F1",color:"#991B1B",border:"1px solid #FECACA",borderRadius:6,fontSize:13,cursor:"pointer"}}>✕ ปฏิเสธ</button></>}
+
+            {/* Feature 3: Clone เป็นร่างใหม่ — ทุก status ยกเว้น draft */}
+            {memo.status!=="draft" && (
+              <button onClick={()=>onCloneMemo(memo)}
+                style={{padding:11,background:"#F5F3FF",color:"#7C3AED",border:"1px solid #DDD6FE",borderRadius:6,fontSize:13,cursor:"pointer",fontWeight:500}}>
+                📋 ใช้เป็นแบบร่างใหม่
+              </button>
+            )}
+
+            {canApprove&&(
+              <>
+                <button onClick={()=>setModal({type:"approve",memo})} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ อนุมัติ</button>
+                <button onClick={()=>setModal({type:"reject",memo})}  style={{padding:11,background:"#FFF1F1",color:"#991B1B",border:"1px solid #FECACA",borderRadius:6,fontSize:13,cursor:"pointer"}}>✕ ปฏิเสธ</button>
+                {/* Feature 4: เพิ่มลำดับต่อเอง */}
+                <button onClick={()=>setShowAddLevel(p=>!p)}
+                  style={{padding:11,background:"#F5F3FF",color:"#7C3AED",border:"1px solid #DDD6FE",borderRadius:6,fontSize:12,cursor:"pointer"}}>
+                  ➕ เพิ่มลำดับอนุมัติต่อ
+                </button>
+                {showAddLevel && (
+                  <div style={{border:"1px solid #DDD6FE",borderRadius:8,padding:12,background:"#FAFAFA"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#7C3AED",marginBottom:8}}>เพิ่มลำดับอนุมัติต่อจากลำดับนี้</div>
+                    <div style={{display:"flex",gap:4,marginBottom:8}}>
+                      {[["all","ทุกคนต้องอนุมัติ"],["any","คนใดคนหนึ่ง"]].map(([k,l])=>(
+                        <button key={k} onClick={()=>setNewLvMode(k)} style={{flex:1,padding:"4px 0",fontSize:10,fontWeight:newLvMode===k?600:400,background:newLvMode===k?"#7C3AED":"#F9FAFB",color:newLvMode===k?"#fff":"#6B7280",border:"1px solid #E5E7EB",borderRadius:4,cursor:"pointer"}}>{l}</button>
+                      ))}
+                    </div>
+                    {newLvUsers.length>0&&(
+                      <div style={{display:"flex",gap:3,flexWrap:"wrap",marginBottom:6}}>
+                        {newLvUsers.map((u,i)=>(
+                          <span key={i} style={{fontSize:10,background:"#EDE9FE",color:"#7C3AED",borderRadius:4,padding:"2px 7px",display:"flex",alignItems:"center",gap:3}}>
+                            {u.name}
+                            <button onClick={()=>setNewLvUsers(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",cursor:"pointer",color:"#9CA3AF",fontSize:10,padding:0}}>✕</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <select defaultValue="" onChange={e=>{addLvUser(e.target.value);e.target.value="";}}
+                      style={{width:"100%",fontSize:11,padding:"5px 8px",border:"1px solid #E5E7EB",borderRadius:5,marginBottom:8,background:"#F9FAFB"}}>
+                      <option value="" disabled>+ เลือกผู้อนุมัติ</option>
+                      {users.filter(u=>u.active&&!newLvUsers.find(x=>x.userId===u.id)).map(u=>(
+                        <option key={u.id} value={u.id}>{u.name} ({u.dept||"-"})</option>
+                      ))}
+                    </select>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={submitAddLevel} style={{...BTN_GOLD,flex:1,padding:"7px",fontSize:11}}>✓ เพิ่มลำดับ</button>
+                      <button onClick={()=>{setShowAddLevel(false);setNewLvUsers([]);}} style={{flex:1,padding:"7px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:5,fontSize:11,cursor:"pointer"}}>ยกเลิก</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
             {isCreator&&memo.status==="pending"&&can(curUser.role,"recall")&&<button onClick={onRecall} style={{padding:11,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:13,cursor:"pointer"}}>↩ เรียกคืน Memo</button>}
             {isCreator&&(memo.status==="draft"||memo.status==="recalled")&&<button onClick={onEdit} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✎ แก้ไข Memo</button>}
           </div>
@@ -2213,6 +2430,47 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
 }
 
 // ── Main App ──────────────────────────────────────────────────────────────────
+// ── RouteListView ─────────────────────────────────────────────────────────────
+function RouteListView({ routeTemplates, curUser, onManage }) {
+  const myRoutes = (routeTemplates||[]).filter(r=>r.createdBy===curUser.id);
+  return (
+    <div style={{padding:24}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:600,color:"#111"}}>🔀 Route การอนุมัติที่ใช้บ่อย</div>
+          <div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>บันทึก workflow ที่ต้องการใช้ซ้ำ — โหลดเข้า Memo ใหม่ได้ในคลิกเดียว</div>
+        </div>
+        <button onClick={onManage} style={{...BTN_GOLD,padding:"8px 16px"}}>+ จัดการ Route</button>
+      </div>
+      {myRoutes.length===0 ? (
+        <div style={{textAlign:"center",padding:"64px 0",color:"#9CA3AF",fontSize:13,border:"2px dashed #E5E7EB",borderRadius:12}}>
+          <div style={{fontSize:36,marginBottom:8}}>🔀</div>
+          <div style={{fontWeight:500,marginBottom:4}}>ยังไม่มี Route</div>
+          <div style={{fontSize:12}}>กด "จัดการ Route" เพื่อสร้าง workflow ที่ใช้บ่อย</div>
+        </div>
+      ) : (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+          {myRoutes.map(r=>(
+            <div key={r.id} style={{background:"#fff",border:"1px solid #F3F4F6",borderRadius:10,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+              <div style={{fontSize:14,fontWeight:600,color:"#111",marginBottom:4}}>🔀 {r.name}</div>
+              {r.desc&&<div style={{fontSize:12,color:"#6B7280",marginBottom:8}}>{r.desc}</div>}
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {(r.levels||[]).map((lv,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 8px",background:"#F9FAFB",borderRadius:5,fontSize:11}}>
+                    <span style={{width:18,height:18,background:GOLD,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:BLACK,flexShrink:0}}>{i+1}</span>
+                    <span style={{flex:1,color:"#374151"}}>{(lv.approvers||[]).map(a=>a.name||a.email).join(", ")}</span>
+                    <span style={{color:"#9CA3AF",fontSize:10}}>{lv.mode==="any"?"คนใดคนหนึ่ง":"ทุกคน"}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function EMemo() {
   const [authUser,      setAuthUser]      = useState(undefined);
   const [data,          setData]          = useState(null);
@@ -2222,9 +2480,10 @@ export default function EMemo() {
   const [modal,         setModal]         = useState(null);
   const [toast,         setToast]         = useState(null);
   const [syncing,       setSyncing]       = useState(false);
-  const [showTplManager,setShowTplManager]= useState(false);
-  const [showProfile,   setShowProfile]   = useState(false);   // [1]
-  const [showSigZones,  setShowSigZones]  = useState(false);   // [2]
+  const [showTplManager,  setShowTplManager]  = useState(false);
+  const [showRouteManager,setShowRouteManager]= useState(false);
+  const [showProfile,     setShowProfile]     = useState(false);
+  const [showSigZones,    setShowSigZones]    = useState(false);
 
   useEffect(()=>{ const u=onAuthStateChanged(auth,u=>setAuthUser(u||null)); return()=>u(); },[]);
   useEffect(()=>{ if(!authUser)return; const u=onValue(ref(db,DATA_PATH),snap=>setData(snap.val()||{users:{},memos:{},notifyConfig:{}})); return()=>u(); },[authUser]);
@@ -2249,11 +2508,12 @@ export default function EMemo() {
 
   const pushHistory = (v, extra={}) => window.history.pushState({ view:v, ...extra }, "", window.location.pathname);
 
-  const users        = Object.values(data.users    ||{});
-  const memoList     = Object.values(data.memos    ||{});
-  const notifyConfig = data.notifyConfig||{email:{},teams:{},powerauto:{},line:{}};
-  const pdfTemplates = data.pdfTemplates ||{};
-  const docCounters  = data.docCounters  ||{};
+  const users         = Object.values(data.users    ||{});
+  const memoList      = Object.values(data.memos    ||{});
+  const notifyConfig  = data.notifyConfig||{email:{},teams:{},powerauto:{},line:{}};
+  const pdfTemplates  = data.pdfTemplates ||{};
+  const docCounters   = data.docCounters  ||{};
+  const routeTemplates= Array.isArray(data.routeTemplates) ? data.routeTemplates : Object.values(data.routeTemplates||{});
 
   const curUser = users.find(u=>u.email===authUser.email) || {
     id:authUser.uid, name:authUser.displayName||authUser.email,
@@ -2381,7 +2641,46 @@ export default function EMemo() {
   const addAtt=(memo,file)=>{const r=new FileReader();r.onload=async e=>{const att={id:newId("a"),name:file.name,size:file.size>1024*1024?(file.size/1024/1024).toFixed(1)+" MB":Math.round(file.size/1024)+" KB",type:file.name.split(".").pop().toLowerCase(),data:e.target.result};await patchMemo(memo.id,{attachments:[...(memo.attachments||[]),att]});showToast("แนบไฟล์แล้ว");};r.readAsDataURL(file);};
   const remAtt=async(memo,id)=>patchMemo(memo.id,{attachments:(memo.attachments||[]).filter(a=>a.id!==id)});
 
-  // [2] Save signature zones
+  // Feature 3: Clone memo เป็นร่างใหม่
+  const cloneMemo = (memo) => {
+    const now = new Date().toISOString();
+    const draft = {
+      title: `[ร่าง] ${memo.title}`,
+      content: memo.content || "",
+      category: memo.category || "ทั่วไป",
+      uploadedFile: memo.uploadedFile || null,
+      attachments: [],
+      workflowLevels: (memo.workflowLevels||[]).map(lv=>({
+        ...lv, id:"lv"+Date.now()+Math.random(),
+        approvers: (lv.approvers||[]).map(ap=>({...ap,status:"pending",comment:"",actionAt:null,signature:null})),
+      })),
+      notify: { ...memo.notify, emailList:[...(memo.notify?.emailList||[])] },
+      clonedFrom: memo.id,
+    };
+    setEditMemo(draft);
+    setView("create");
+    pushHistory("create");
+    showToast("โหลดเป็นร่างใหม่แล้ว — ตรวจสอบและส่งอนุมัติได้เลย");
+  };
+
+  // Feature 4: ผู้อนุมัติเพิ่มลำดับต่อเอง
+  const approverAddLevel = async (memo, newLevel) => {
+    const now    = new Date().toISOString();
+    const curIdx = memo.currentLevel || 0;
+    // Insert new level right after current index
+    const levels = [...(memo.workflowLevels||[])];
+    levels.splice(curIdx+1, 0, {
+      id: "lv"+Date.now(),
+      mode: newLevel.mode,
+      approvers: newLevel.approvers.map(ap=>({...ap,status:"pending",comment:"",actionAt:null})),
+    });
+    await patchMemo(memo.id, {
+      workflowLevels: levels,
+      history: [...(memo.history||[]), {action:"addedLevel",by:curUser.id,at:now,comment:`เพิ่มลำดับอนุมัติ: ${newLevel.approvers.map(a=>a.name).join(", ")}`}],
+    });
+    showToast("เพิ่มลำดับอนุมัติต่อแล้ว");
+  };
+
   const saveSigZones = async (zones) => {
     if(!editMemo?.id) return;
     await patchMemo(editMemo.id,{signatureZones:zones});
@@ -2391,13 +2690,14 @@ export default function EMemo() {
   };
 
   const NAV=[
-    {k:"dashboard",l:"ภาพรวม",     i:"⊞",roles:["superadmin","admin","user"]},
-    {k:"inbox",    l:"กล่องขาเข้า",i:"↓",badge:inbox.length||null,roles:["superadmin","admin","user"]},
-    {k:"myMemos",  l:"Memo ของฉัน",i:"◉",roles:["superadmin","admin","user"]},
-    {k:"all",      l:"ทั้งหมด",    i:"≡",roles:["superadmin","admin"]},
-    {k:"search",   l:"ค้นหา",      i:"⌕",roles:["superadmin","admin","user"]},
-    {k:"users",    l:"จัดการ User",i:"◎",roles:["superadmin"]},
-    {k:"settings", l:"ตั้งค่าระบบ",i:"⚙",roles:["superadmin"]},
+    {k:"dashboard",l:"ภาพรวม",       i:"⊞",roles:["superadmin","admin","user"]},
+    {k:"inbox",    l:"กล่องขาเข้า",  i:"↓",badge:inbox.length||null,roles:["superadmin","admin","user"]},
+    {k:"myMemos",  l:"Memo ของฉัน",  i:"◉",roles:["superadmin","admin","user"]},
+    {k:"all",      l:"ทั้งหมด",      i:"≡",roles:["superadmin","admin"]},
+    {k:"search",   l:"ค้นหา",        i:"⌕",roles:["superadmin","admin","user"]},
+    {k:"routes",   l:"Route อนุมัติ",i:"🔀",roles:["superadmin","admin","user"]},
+    {k:"users",    l:"จัดการ User",  i:"◎",roles:["superadmin"]},
+    {k:"settings", l:"ตั้งค่าระบบ", i:"⚙",roles:["superadmin"]},
   ];
 
   return (
@@ -2408,6 +2708,7 @@ export default function EMemo() {
       {showProfile&&<ProfileModal curUser={curUser} onClose={()=>setShowProfile(false)} showToast={showToast}/>}
       {showTplManager&&can(curUser.role,"settings")&&<DocxTemplateManager templates={pdfTemplates} onSave={async tpls=>{await writePdfTemplates(tpls);showToast("บันทึก Template แล้ว");setShowTplManager(false);}} onClose={()=>setShowTplManager(false)}/>}
       {showSigZones&&editMemo&&<SignatureZonesModal memo={editMemo} users={users} curUser={curUser} onSave={saveSigZones} onClose={()=>setShowSigZones(false)}/>}
+      {showRouteManager&&<RouteTemplateModal users={users} curUser={curUser} routeTemplates={routeTemplates} onSave={async routes=>{await writeRouteTemplates(routes);showToast("บันทึก Route แล้ว");}} onClose={()=>setShowRouteManager(false)}/>}
 
       {/* Sidebar */}
       <div style={{width:210,background:BLACK,color:"#fff",display:"flex",flexDirection:"column",flexShrink:0}}>
@@ -2453,18 +2754,15 @@ export default function EMemo() {
         {view==="myMemos"  &&<MemoListView memoList={myMemos} users={users} title="Memo ของฉัน" curUser={curUser} onOpen={openMemo} onRecall={recallMemo} onEdit={startEdit}/>}
         {view==="all"      &&can(curUser.role,"viewAll")&&<MemoListView memoList={visibleMemos} users={users} title="Memo ทั้งหมด" curUser={curUser} onOpen={openMemo}/>}
         {view==="search"   &&<SearchView memoList={visibleMemos} users={users} curUser={curUser} onOpen={openMemo}/>}
+        {view==="routes"   &&<RouteListView routeTemplates={routeTemplates} curUser={curUser} onManage={()=>setShowRouteManager(true)}/>}
         {view==="users"    &&can(curUser.role,"manageUsers")&&<UsersMgmt users={users} curUser={curUser} showToast={showToast}/>}
         {view==="settings" &&(
           can(curUser.role,"settings")
             ? <ErrorBoundary><SettingsView notifyConfig={notifyConfig} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)}/></ErrorBoundary>
-            : <div style={{padding:32,textAlign:"center",color:"#9CA3AF",fontSize:13}}>
-                <div style={{fontSize:24,marginBottom:8}}>🔒</div>
-                <div>สิทธิ์ไม่เพียงพอ (role: {curUser.role||"ไม่ระบุ"})</div>
-                <div style={{fontSize:11,marginTop:4}}>ต้องเป็น Super Admin เท่านั้น</div>
-              </div>
+            : <div style={{padding:32,textAlign:"center",color:"#9CA3AF",fontSize:13}}><div style={{fontSize:24,marginBottom:8}}>🔒</div><div>สิทธิ์ไม่เพียงพอ</div></div>
         )}
-        {view==="create"   &&editMemo&&<CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"} onOpenSigZones={()=>setShowSigZones(true)}/>}
-        {view==="detail"   &&selMemo&&<DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplates={pdfTemplates} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal}/>}
+        {view==="create"&&editMemo&&<CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} routeTemplates={routeTemplates} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"} onOpenSigZones={()=>setShowSigZones(true)}/>}
+        {view==="detail"&&selMemo&&<DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplates={pdfTemplates} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal} onCloneMemo={cloneMemo} onApproverAddLevel={approverAddLevel}/>}
       </div>
     </div>
   );
