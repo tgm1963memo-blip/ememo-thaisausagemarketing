@@ -1593,7 +1593,7 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
                 </div>
               </div>
             )}
-            <div style={{fontSize:14,lineHeight:1.8,whiteSpace:"pre-wrap",color:"#374141"}}>{memo.content}</div>
+                <div style={{fontSize:14,lineHeight:1.7,color:"#374141"}} dangerouslySetInnerHTML={{__html: memo.content||""}}/>
           </Section>
           <Section title="เอกสารแนบ" extra={(isCreator||canApprove)&&<><button onClick={()=>fileRef.current?.click()} style={BTN_GRAY}>+ แนบไฟล์</button><input ref={fileRef} type="file" style={{display:"none"}} onChange={handleFile}/></>}>
             {!(memo.attachments||[]).length?<div style={{fontSize:12,color:"#9CA3AF",textAlign:"center"}}>ไม่มีเอกสารแนบ</div>
@@ -2013,7 +2013,7 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
       html+='</tbody></table>';
       html+='<div style="border-top:1px solid #E5E7EB;margin-bottom:18px;"></div>';
       // Content
-      html+='<div style="font-size:13px;line-height:1.9;white-space:pre-wrap;word-break:break-word;margin-bottom:28px;">'+(memo.content||"")+'</div>';
+      html+='<div style="font-size:13px;line-height:1.9;word-break:break-word;margin-bottom:28px;">'+(memo.content||"")+'</div>';
     }
     // Signature zones
     if(zones.length>0){
@@ -2127,12 +2127,12 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
                 <div style={{borderTop:"1px solid #E5E7EB",paddingTop:8,marginBottom:12,fontSize:11,color:"#6B7280",textAlign:"center"}}>
                   📄 {memo.uploadedFile.name} — ลากจุด ✍ เพื่อวางลายเซ็น
                 </div>
-                {memo.content&&<div style={{fontSize:12,color:"#374151",marginBottom:12,whiteSpace:"pre-wrap"}}>หมายเหตุ: {memo.content}</div>}
+                {memo.content&&<div style={{fontSize:12,color:"#374151",marginBottom:12}}><span style={{color:"#9CA3AF"}}>หมายเหตุ: </span><span dangerouslySetInnerHTML={{__html:memo.content}}/></div>}
               </div>
             ) : memo.uploadedFile && memo.uploadedFile.type==="pdf" ? (
               <div>
                 <PdfBlobViewer dataUrl={memo.uploadedFile.data} name={memo.uploadedFile.name} height={620}/>
-                {memo.content&&<div style={{fontSize:12,color:"#374151",marginTop:8,marginBottom:12,whiteSpace:"pre-wrap"}}>หมายเหตุ: {memo.content}</div>}
+                {memo.content&&<div style={{fontSize:12,color:"#374151",marginBottom:12}}><span style={{color:"#9CA3AF"}}>หมายเหตุ: </span><span dangerouslySetInnerHTML={{__html:memo.content}}/></div>}
               </div>
             ) : (
             <div style={{display:"flex",alignItems:"center",gap:14,borderBottom:"2px solid #1E3A5F",paddingBottom:10,marginBottom:18}}>
@@ -2170,8 +2170,8 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
               </tbody>
             </table>
             <div style={{borderTop:"1px solid #E5E7EB",marginBottom:20}}/>
-            <div style={{fontSize:13,lineHeight:1.9,whiteSpace:"pre-wrap",color:"#374151",minHeight:120,marginBottom:28}}>
-              {memo.content||<span style={{color:"#ccc",fontStyle:"italic"}}>เนื้อหาจะแสดงที่นี่...</span>}
+            <div style={{fontSize:13,lineHeight:1.9,color:"#374151",minHeight:100,marginBottom:28}}
+              dangerouslySetInnerHTML={{__html: memo.content||'<span style="color:#ccc;font-style:italic">เนื้อหาจะแสดงที่นี่...</span>'}}/>
             </div></>}
             {zones.length===0&&<div style={{padding:16,background:"#F9FAFB",border:"1px dashed #E5E7EB",borderRadius:6,textAlign:"center",color:"#9CA3AF",fontSize:12}}>กด "+ เพิ่มจุดลงนาม" แล้วลากไปวางตำแหน่งที่ต้องการบนเอกสาร</div>}
             {approvals.length>0&&(
