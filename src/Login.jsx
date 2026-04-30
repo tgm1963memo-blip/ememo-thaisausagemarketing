@@ -34,13 +34,18 @@ export default function Login() {
     if (!email) { setError("กรุณากรอก Email ก่อน"); return; }
     setError(""); setResetLoading(true);
     try {
-      await sendPasswordResetEmail(auth, email);
+      await sendPasswordResetEmail(auth, email.trim());
       setResetSent(true);
     } catch (err) {
       const msg = {
-        "auth/user-not-found": "ไม่พบบัญชีนี้ กรุณาติดต่อ Admin",
-        "auth/invalid-email":  "รูปแบบ Email ไม่ถูกต้อง",
-      }[err.code] || "ส่งไม่สำเร็จ กรุณาลองใหม่";
+        "auth/user-not-found":      "ไม่พบบัญชีนี้ในระบบ — กรุณาติดต่อ Admin เพื่อสร้างบัญชี",
+        "auth/invalid-email":       "รูปแบบ Email ไม่ถูกต้อง",
+        "auth/missing-email":       "กรุณากรอก Email",
+        "auth/too-many-requests":   "ส่งบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่",
+        "auth/network-request-failed": "ไม่มีการเชื่อมต่ออินเทอร์เน็ต กรุณาตรวจสอบเน็ต",
+        "auth/unauthorized-continue-uri": "Domain ไม่ได้รับอนุญาต — แจ้ง Admin ตรวจสอบ Firebase Console",
+        "auth/invalid-continue-uri":     "Domain ไม่ได้รับอนุญาต — แจ้ง Admin ตรวจสอบ Firebase Console",
+      }[err.code] || `ส่งไม่สำเร็จ (${err.code || err.message}) — กรุณาติดต่อ Admin`;
       setError(msg);
     } finally { setResetLoading(false); }
   };
@@ -76,7 +81,10 @@ export default function Login() {
         {resetSent && (
           <div style={S.success}>
             ✅ ส่งลิงก์ไปที่ <strong>{email}</strong> แล้ว<br/>
-            กรุณาตรวจสอบกล่องจดหมาย (รวมถึง Spam)
+            กรุณาตรวจสอบกล่องจดหมาย (รวมถึงโฟลเดอร์ Spam / Junk)<br/>
+            <span style={{fontSize:11,color:"#047857",marginTop:4,display:"block"}}>
+              ลิงก์มีอายุ 1 ชั่วโมง
+            </span>
           </div>
         )}
 

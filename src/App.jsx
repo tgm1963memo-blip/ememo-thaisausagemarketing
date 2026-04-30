@@ -112,6 +112,9 @@ async function assignDocNo(memo, users, docCounters) {
 }
 
 // [6] ส่งอีเมล์หาผู้อนุมัติเมื่อถึงคิว ─────────────────────────────────────
+// Strip HTML tags helper for email plain-text fields
+const stripHtml = s => (s||"").replace(/<br\s*\/?>/gi,"\n").replace(/<[^>]+>/g,"").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").trim();
+
 async function sendApproverEmail(cfg, memo, level, users) {
   if (!cfg.email?.enabled || !cfg.email?.serviceId) return;
   const creator    = users.find(u => u.id === memo.createdBy) || {};
@@ -132,7 +135,7 @@ async function sendApproverEmail(cfg, memo, level, users) {
             to_email:      toEmail,
             approver_name: ap.name || toEmail,
             memo_title:    memo.title,
-            memo_content:  (memo.content||"").slice(0,300),
+            memo_content:  stripHtml(memo.content).slice(0,300),
             creator_name:  creator.name,
             category:      memo.category,
             memo_id:       memo.id,
@@ -151,7 +154,7 @@ async function sendApproverEmail(cfg, memo, level, users) {
 async function sendApprovedNotifications(cfg, memo, users) {
   const creator      = users.find(u => u.id === memo.createdBy) || {};
   const approvedDate = new Date().toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
-  const summary      = (memo.content||"").slice(0,200);
+  const summary      = stripHtml(memo.content||"").slice(0,200);
 
   if (cfg.email?.enabled && cfg.email?.serviceId && memo.notify?.emailList?.length) {
     for (const toEmail of memo.notify.emailList) {
