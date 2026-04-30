@@ -1196,7 +1196,7 @@ function RichEditor({ value, onChange }) {
       const lines = [];
       rows.forEach(tr => {
         const cells = [...tr.querySelectorAll("td,th")].map(c => c.innerText.trim().replace(/\n/g," "));
-        lines.push(cells.join("	"));
+        lines.push(cells.join("\t"));
       });
       const txt = lines.join("\n");
       document.execCommand("insertText", false, txt);
@@ -1220,13 +1220,9 @@ function RichEditor({ value, onChange }) {
 
   // Insert blank table template
   const insertTable = () => {
-    const header = Array.from({length:cols},(_,i)=>`คอลัมน์ ${i+1}`).join("	");
-    const dataRows = Array.from({length:rows},()=>Array(cols).fill("-").join("	")).join("
-");
-    document.execCommand("insertText", false, "
-"+header+"
-"+dataRows+"
-");
+    const header   = Array.from({length:cols},(_,i)=>`คอลัมน์ ${i+1}`).join("\t");
+    const dataRows = Array.from({length:rows},()=>Array(cols).fill("-").join("\t")).join("\n");
+    document.execCommand("insertText", false, "\n"+header+"\n"+dataRows+"\n");
     onChange(editorRef.current.innerText || "");
     setShowTable(false);
   };
