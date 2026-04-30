@@ -2172,7 +2172,7 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
             <div style={{borderTop:"1px solid #E5E7EB",marginBottom:20}}/>
             <div style={{fontSize:13,lineHeight:1.9,color:"#374151",minHeight:100,marginBottom:28}}
               dangerouslySetInnerHTML={{__html: memo.content||'<span style="color:#ccc;font-style:italic">เนื้อหาจะแสดงที่นี่...</span>'}}/>
-            </div></>}
+            </>}
             {zones.length===0&&<div style={{padding:16,background:"#F9FAFB",border:"1px dashed #E5E7EB",borderRadius:6,textAlign:"center",color:"#9CA3AF",fontSize:12}}>กด "+ เพิ่มจุดลงนาม" แล้วลากไปวางตำแหน่งที่ต้องการบนเอกสาร</div>}
             {approvals.length>0&&(
               <div style={{marginTop:32,borderTop:"1px solid #E5E7EB",paddingTop:16}}>
