@@ -199,23 +199,57 @@ function printSystemPDF(memo, users) {
   if(!root){ root=document.createElement("div"); root.id="ememo-print-root"; document.body.appendChild(root); }
   if(!document.getElementById("ememo-print-css")){
     const s=document.createElement("style"); s.id="ememo-print-css";
-    s.textContent=`@media print{body>*{display:none!important;}#ememo-print-root{display:block!important;}#ememo-print-root table{page-break-inside:avoid;}#ememo-print-root .page-break{page-break-before:always;}}#ememo-print-root{display:none;font-family:'Noto Sans Thai','Sarabun',sans-serif;}`;
+    s.textContent=`
+      @media print {
+        body > * { display:none !important; }
+        #ememo-print-root { display:block !important; }
+        #ememo-print-root table { page-break-inside:avoid; }
+        #ememo-print-root .page-break { page-break-before:always; }
+        /* Repeating header on every page */
+        #ememo-print-root .print-header { display:table-header-group; }
+        #ememo-print-root .print-body   { display:table-row-group; }
+        /* Page numbers via CSS counter */
+        @page { margin:18mm 20mm; }
+        #ememo-print-root .page-num::after { content: counter(page); }
+        #ememo-print-root { counter-reset:page; }
+      }
+      #ememo-print-root { display:none; font-family:'Noto Sans Thai','Sarabun',sans-serif; }
+      /* Running header + footer using position:running() — fallback via table */
+      #ememo-print-root .doc-wrap {
+        display:table; width:100%; border-collapse:collapse;
+      }
+    `;
     document.head.appendChild(s);
   }
-  let html = '<div style="width:210mm;min-height:297mm;margin:0 auto;padding:20mm 22mm;box-sizing:border-box;font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;">';
-  html += '<div style="text-align:center;border-bottom:2px solid #D4AF37;padding-bottom:12px;margin-bottom:20px;">';
-  // If uploaded image file, show it as document
+  // Build header HTML (repeats on every page via table-header-group)
+  const HEADER_HTML =
+    '<div style="display:flex;align-items:center;gap:14px;border-bottom:2px solid #1E3A5F;padding-bottom:10px;margin-bottom:16px;">' +
+    '<img src="https://img1.pic.in.th/images/logo-tss-03.png" style="height:44px;object-fit:contain;" alt="logo"/>' +
+    '<div style="flex:1;">' +
+      '<div style="font-size:12px;font-weight:700;color:#1E3A5F;">'+COMPANY+'</div>' +
+      '<div style="font-size:16px;font-weight:700;margin-top:2px;">บันทึกข้อความ (Memo)</div>' +
+      (memo.docNo ? '<div style="font-size:10px;color:#6B7280;font-family:monospace;">เลขที่ '+memo.docNo+'</div>' : '') +
+    '</div>' +
+    '<div style="font-size:10px;color:#9CA3AF;text-align:right;">' +
+      '<span class="page-num" style="counter-increment:page;">หน้า </span>' +
+    '</div>' +
+    '</div>';
+
+  // Wrap everything in a table so thead repeats on every printed page
+  let html = '<table class="doc-wrap" style="width:210mm;font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;">';
+  html += '<thead class="print-header"><tr><td style="padding:12mm 16mm 8mm;">' + HEADER_HTML + '</td></tr></thead>';
+  html += '<tfoot><tr><td style="padding:6mm 16mm;border-top:1px solid #F3F4F6;">';
+  html += '<div style="display:flex;justify-content:space-between;font-size:9px;color:#9CA3AF;">';
+  html += '<span>'+COMPANY+'</span>';
+  html += '<span>พิมพ์เมื่อ '+fD(new Date().toISOString())+'</span>';
+  html += '</div></td></tr></tfoot>';
+  html += '<tbody class="print-body"><tr><td style="padding:0 16mm 16mm;">';
+
+  // If uploaded image file, embed as doc
   if(memo.uploadedFile && (memo.uploadedFile.type==="png"||memo.uploadedFile.type==="jpg"||memo.uploadedFile.type==="jpeg")){
     html += '<img src="'+memo.uploadedFile.data+'" style="max-width:100%;display:block;margin:0 auto 12px;"/>';
     if(memo.content) html += '<div style="font-size:12px;color:#374151;margin-bottom:8px;white-space:pre-wrap;">หมายเหตุ: '+memo.content+'</div>';
-    html += '</div>';
   } else {
-    html += '<img src="https://img1.pic.in.th/images/logo-tss-03.png" style="height:48px;display:block;margin:0 auto 8px;object-fit:contain;" alt="logo"/>';
-    html += '<div style="font-size:14px;font-weight:700;">'+COMPANY+'</div>';
-    html += '<div style="font-size:20px;font-weight:700;margin-top:6px;">บันทึกข้อความ (Memo)</div>';
-    if(memo.docNo) html += '<div style="font-size:11px;color:#6B7280;">เลขที่ '+memo.docNo+'</div>';
-    html += '</div>';
-  }
   html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;"><tbody>';
   html += '<tr><td style="width:90px;color:#6B7280;padding:3px 0;">เรื่อง:</td><td style="font-weight:600;">'+(memo.title||"")+'</td>';
   html += '<td style="width:80px;color:#6B7280;text-align:right;">หมวดหมู่:</td><td style="text-align:right;">'+(memo.category||"")+'</td></tr>';
@@ -265,9 +299,8 @@ function printSystemPDF(memo, users) {
     });
     html += '</table></div>';
   }
-  html += '<div style="margin-top:32px;border-top:1px solid #F3F4F6;padding-top:8px;display:flex;justify-content:space-between;font-size:10px;color:#9CA3AF;">';
-  html += '<span>'+COMPANY+'</span><span>พิมพ์เมื่อ '+fD(new Date().toISOString())+'</span></div>';
-  html += '</div>';
+  }
+  html += '</td></tr></tbody></table>';
   root.innerHTML = html;
   setTimeout(()=>{ window.print(); setTimeout(()=>{ root.innerHTML=""; },500); }, 200);
 }
@@ -1163,6 +1196,42 @@ function WorkflowLevelBuilder({ levels, setLevels, users, curUser }) {
 }
 
 // ── RichEditor — paste Excel table + insert image + auto page break ──────────
+// ── PdfBlobViewer — converts base64 data URL to Blob URL for iframe ──────────
+function PdfBlobViewer({ dataUrl, name, height=600 }) {
+  const [blobUrl, setBlobUrl] = useState(null);
+  useEffect(() => {
+    if (!dataUrl) return;
+    try {
+      const b64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      setBlobUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } catch(e) { setBlobUrl(null); }
+  }, [dataUrl]);
+
+  if (!blobUrl) return (
+    <div style={{padding:24,textAlign:"center",background:"#F9FAFB",borderRadius:8,border:"1px solid #E5E7EB"}}>
+      <div style={{fontSize:28,marginBottom:8}}>📄</div>
+      <div style={{fontSize:13,fontWeight:500,color:"#374151",marginBottom:4}}>{name}</div>
+      <div style={{fontSize:12,color:"#9CA3AF"}}>กำลังเตรียม PDF...</div>
+    </div>
+  );
+  return (
+    <div>
+      <iframe src={blobUrl} title={name||"pdf"}
+        style={{width:"100%",height:height,border:"none",display:"block",borderRadius:4,boxShadow:"0 2px 8px rgba(0,0,0,.08)"}}/>
+      <div style={{fontSize:11,color:"#6B7280",textAlign:"center",marginTop:5}}>
+        📄 {name} —{" "}
+        <a href={blobUrl} download={name} style={{color:"#2563EB",textDecoration:"none"}}>⬇ ดาวน์โหลด</a>
+      </div>
+    </div>
+  );
+}
+
 function RichEditor({ value, onChange }) {
   const editorRef  = useRef();
   const imageRef   = useRef();
@@ -1453,7 +1522,7 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
                 <div style={{fontSize:11,fontWeight:700,color:"#6B7280",marginBottom:6,textTransform:"uppercase",letterSpacing:.4}}>ไฟล์เอกสารหลัก</div>
                 <div style={{border:"1px solid #E5E7EB",borderRadius:8,overflow:"hidden",background:"#FAFAFA"}}>
                   {memo.uploadedFile.type==="pdf" && memo.uploadedFile.data ? (
-                    <iframe src={memo.uploadedFile.data} style={{width:"100%",height:480,border:"none",display:"block"}} title="memo-pdf"/>
+                    <PdfBlobViewer dataUrl={memo.uploadedFile.data} name={memo.uploadedFile.name} height={400}/>
                   ) : (memo.uploadedFile.type==="png"||memo.uploadedFile.type==="jpg"||memo.uploadedFile.type==="jpeg") && memo.uploadedFile.data ? (
                     <img src={memo.uploadedFile.data} alt="memo" style={{width:"100%",maxHeight:480,objectFit:"contain",display:"block"}}/>
                   ) : (
@@ -1974,10 +2043,8 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
               </div>
             ) : memo.uploadedFile && memo.uploadedFile.type==="pdf" ? (
               <div>
-                <iframe src={memo.uploadedFile.data} title="pdf-preview"
-                  style={{width:"100%",height:600,border:"none",display:"block",marginBottom:8}}/>
-                <div style={{fontSize:11,color:"#6B7280",textAlign:"center",marginBottom:12}}>📄 {memo.uploadedFile.name}</div>
-                {memo.content&&<div style={{fontSize:12,color:"#374151",marginBottom:12,whiteSpace:"pre-wrap"}}>หมายเหตุ: {memo.content}</div>}
+                <PdfBlobViewer dataUrl={memo.uploadedFile.data} name={memo.uploadedFile.name} height={620}/>
+                {memo.content&&<div style={{fontSize:12,color:"#374151",marginTop:8,marginBottom:12,whiteSpace:"pre-wrap"}}>หมายเหตุ: {memo.content}</div>}
               </div>
             ) : (
             <div style={{textAlign:"center",borderBottom:`2px solid ${GOLD}`,paddingBottom:12,marginBottom:20}}>
