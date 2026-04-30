@@ -1992,7 +1992,7 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
               {memo.docNo&&<div style={{fontSize:11,color:"#6B7280",marginTop:3}}>เลขที่ {memo.docNo}</div>}
             </div>
             )} {/* end uploadedFile ternary */}
-            {!memo.uploadedFile && <table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:12}}><tbody>
+            {!memo.uploadedFile && <><table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:12}}><tbody>
               <tr><td style={{width:100,color:"#6B7280",paddingBottom:5}}>เรื่อง:</td><td style={{fontWeight:600,paddingBottom:5}}>{memo.title||<span style={{color:"#ccc"}}>ยังไม่ได้กรอก</span>}</td><td style={{width:80,color:"#6B7280",paddingBottom:5,textAlign:"right"}}>หมวดหมู่:</td><td style={{paddingBottom:5,textAlign:"right"}}>{memo.category||"-"}</td></tr>
               <tr>
                 <td style={{color:"#6B7280"}}>ผู้สร้าง:</td>
@@ -2008,7 +2008,7 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
             <div style={{borderTop:"1px solid #E5E7EB",marginBottom:20}}/>
             <div style={{fontSize:13,lineHeight:1.9,whiteSpace:"pre-wrap",color:"#374151",minHeight:120,marginBottom:28}}>
               {memo.content||<span style={{color:"#ccc",fontStyle:"italic"}}>เนื้อหาจะแสดงที่นี่...</span>}
-            </div>
+            </div></>}
             {zones.length===0&&<div style={{padding:16,background:"#F9FAFB",border:"1px dashed #E5E7EB",borderRadius:6,textAlign:"center",color:"#9CA3AF",fontSize:12}}>กด "+ เพิ่มจุดลงนาม" แล้วลากไปวางตำแหน่งที่ต้องการบนเอกสาร</div>}
             {approvals.length>0&&(
               <div style={{marginTop:32,borderTop:"1px solid #E5E7EB",paddingTop:16}}>
