@@ -1195,12 +1195,10 @@ function RichEditor({ value, onChange }) {
       const rows = tmp.querySelectorAll("tr");
       const lines = [];
       rows.forEach(tr => {
-        const cells = [...tr.querySelectorAll("td,th")].map(c => c.innerText.trim().replace(/
-/g," "));
+        const cells = [...tr.querySelectorAll("td,th")].map(c => c.innerText.trim().replace(/\n/g," "));
         lines.push(cells.join("	"));
       });
-      const txt = lines.join("
-");
+      const txt = lines.join("\n");
       document.execCommand("insertText", false, txt);
     } else {
       document.execCommand("insertText", false, plain);
