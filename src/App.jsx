@@ -203,47 +203,63 @@ function printSystemPDF(memo, users) {
       @media print {
         body > * { display:none !important; }
         #ememo-print-root { display:block !important; }
-        #ememo-print-root table { page-break-inside:avoid; }
-        #ememo-print-root .page-break { page-break-before:always; }
-        /* Repeating header on every page */
-        #ememo-print-root .print-header { display:table-header-group; }
-        #ememo-print-root .print-body   { display:table-row-group; }
-        /* Page numbers via CSS counter */
-        @page { margin:18mm 20mm; }
-        #ememo-print-root .page-num::after { content: counter(page); }
-        #ememo-print-root { counter-reset:page; }
+        /* Fixed header repeats on every page */
+        #ememo-print-root .rpt-header {
+          position: fixed;
+          top: 0; left: 0; right: 0;
+          background: #fff;
+          padding: 8mm 16mm 4mm;
+          border-bottom: 2px solid #1E3A5F;
+          z-index: 1000;
+        }
+        /* Fixed footer with page number */
+        #ememo-print-root .rpt-footer {
+          position: fixed;
+          bottom: 0; left: 0; right: 0;
+          background: #fff;
+          padding: 3mm 16mm 5mm;
+          border-top: 1px solid #E5E7EB;
+          font-size: 9px;
+          color: #9CA3AF;
+          display: flex;
+          justify-content: space-between;
+          z-index: 1000;
+        }
+        /* Push content down to clear fixed header */
+        #ememo-print-root .rpt-body {
+          margin-top: 36mm;
+          margin-bottom: 16mm;
+          padding: 0 16mm;
+        }
+        #ememo-print-root table { page-break-inside: avoid; }
+        @page {
+          margin: 0;
+          size: A4;
+          @bottom-right { content: "หน้า " counter(page) " / " counter(pages); font-size: 9px; color: #9CA3AF; }
+        }
       }
       #ememo-print-root { display:none; font-family:'Noto Sans Thai','Sarabun',sans-serif; }
-      /* Running header + footer using position:running() — fallback via table */
-      #ememo-print-root .doc-wrap {
-        display:table; width:100%; border-collapse:collapse;
-      }
     `;
     document.head.appendChild(s);
   }
-  // Build header HTML (repeats on every page via table-header-group)
-  const HEADER_HTML =
-    '<div style="display:flex;align-items:center;gap:14px;border-bottom:2px solid #1E3A5F;padding-bottom:10px;margin-bottom:16px;">' +
-    '<img src="https://img1.pic.in.th/images/logo-tss-03.png" style="height:44px;object-fit:contain;" alt="logo"/>' +
-    '<div style="flex:1;">' +
-      '<div style="font-size:12px;font-weight:700;color:#1E3A5F;">'+COMPANY+'</div>' +
-      '<div style="font-size:16px;font-weight:700;margin-top:2px;">บันทึกข้อความ (Memo)</div>' +
-      (memo.docNo ? '<div style="font-size:10px;color:#6B7280;font-family:monospace;">เลขที่ '+memo.docNo+'</div>' : '') +
-    '</div>' +
-    '<div style="font-size:10px;color:#9CA3AF;text-align:right;">' +
-      '<span class="page-num" style="counter-increment:page;">หน้า </span>' +
-    '</div>' +
-    '</div>';
-
-  // Wrap everything in a table so thead repeats on every printed page
-  let html = '<table class="doc-wrap" style="width:210mm;font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;">';
-  html += '<thead class="print-header"><tr><td style="padding:12mm 16mm 8mm;">' + HEADER_HTML + '</td></tr></thead>';
-  html += '<tfoot><tr><td style="padding:6mm 16mm;border-top:1px solid #F3F4F6;">';
-  html += '<div style="display:flex;justify-content:space-between;font-size:9px;color:#9CA3AF;">';
+  // ── Fixed header (position:fixed repeats on every printed page) ──────────
+  let html = '<div class="rpt-header">';
+  html += '<div style="display:flex;align-items:center;gap:14px;">';
+  html += '<img src="https://img1.pic.in.th/images/logo-tss-03.png" style="height:40px;object-fit:contain;" alt="logo"/>';
+  html += '<div style="flex:1;">';
+  html += '<div style="font-size:11px;font-weight:700;color:#1E3A5F;">'+COMPANY+'</div>';
+  html += '<div style="font-size:14px;font-weight:700;">บันทึกข้อความ (Memo)';
+  if(memo.docNo) html += ' <span style="font-size:10px;color:#6B7280;font-family:monospace;font-weight:400;">เลขที่ '+memo.docNo+'</span>';
+  html += '</div></div>';
+  html += '<div style="font-size:9px;color:#9CA3AF;">'+fD(new Date().toISOString())+'</div>';
+  html += '</div></div>';
+  // Fixed footer
+  html += '<div class="rpt-footer">';
   html += '<span>'+COMPANY+'</span>';
-  html += '<span>พิมพ์เมื่อ '+fD(new Date().toISOString())+'</span>';
-  html += '</div></td></tr></tfoot>';
-  html += '<tbody class="print-body"><tr><td style="padding:0 16mm 16mm;">';
+  html += '<span id="pg-num">กำลังโหลด...</span>';
+  html += '</div>';
+  // Body content
+  html += '<div class="rpt-body" style="font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;">';
 
   // If uploaded image file, embed as doc
   if(memo.uploadedFile && (memo.uploadedFile.type==="png"||memo.uploadedFile.type==="jpg"||memo.uploadedFile.type==="jpeg")){
@@ -300,8 +316,10 @@ function printSystemPDF(memo, users) {
     html += '</table></div>';
   }
   }
-  html += '</td></tr></tbody></table>';
+  html += '</div>'; // close rpt-body
   root.innerHTML = html;
+  // Inject page numbers via afterprint / pagedjs not available; use simple JS
+  // The @page counter is set in CSS and works in Chrome/Edge natively
   setTimeout(()=>{ window.print(); setTimeout(()=>{ root.innerHTML=""; },500); }, 200);
 }
 
@@ -2207,6 +2225,11 @@ export default function EMemo() {
       history:[...(old?.history||[]),...(!old?[{action:"created",by:curUser.id,at:now,comment:""}]:[]),
         ...(isDraft?[{action:"edited",by:curUser.id,at:now,comment:""}]:[{action:old?"resubmitted":"submitted",by:curUser.id,at:now,comment:"ส่งเพื่อขออนุมัติ"}])]};
     try {
+      // Assign docNo at submit time so it appears in print immediately
+      if(!isDraft && !payload.docNo) {
+        const docNo = await assignDocNo(payload, users, docCounters);
+        payload.docNo = docNo;
+      }
       await writeMemo(payload,isNew);
       // [6] Send email to level 1 approvers when submitting
       if(!isDraft&&levels.length) await sendApproverEmail(notifyConfig,payload,levels[0],users);
