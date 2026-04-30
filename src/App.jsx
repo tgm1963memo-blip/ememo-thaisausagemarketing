@@ -249,14 +249,15 @@ function printSystemPDF(memo, users) {
   html += '<div style="flex:1;">';
   html += '<div style="font-size:11px;font-weight:700;color:#1E3A5F;">'+COMPANY+'</div>';
   html += '<div style="font-size:14px;font-weight:700;">บันทึกข้อความ (Memo)';
-  if(memo.docNo) html += ' <span style="font-size:10px;color:#6B7280;font-family:monospace;font-weight:400;">เลขที่ '+memo.docNo+'</span>';
+  const _docNo = memo.docNo || ('DRAFT-'+(memo.id||'').slice(-6).toUpperCase());
+  html += ' <span style="font-size:10px;color:#6B7280;font-family:monospace;font-weight:400;">เลขที่ '+_docNo+'</span>';
   html += '</div></div>';
   html += '<div style="font-size:9px;color:#9CA3AF;">'+fD(new Date().toISOString())+'</div>';
   html += '</div></div>';
   // Fixed footer
   html += '<div class="rpt-footer">';
   html += '<span>'+COMPANY+'</span>';
-  html += '<span id="pg-num">กำลังโหลด...</span>';
+  html += '<span>เลขที่ '+_docNo+'</span>';
   html += '</div>';
   // Body content
   html += '<div class="rpt-body" style="font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;">';
@@ -1917,75 +1918,101 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
 
   const handlePrint=()=>{
     setPrinting(true);
+    const fD=fmtD; const C=COMPANY;
     let root=document.getElementById("ememo-print-root");
     if(!root){root=document.createElement("div");root.id="ememo-print-root";document.body.appendChild(root);}
-    const fD=fmtD;
-    const C=COMPANY;
-    // Build HTML using string concatenation — avoids nested template literal parsing issues
-    let html='<div style="width:210mm;min-height:297mm;margin:0 auto;padding:20mm 22mm;box-sizing:border-box;font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;position:relative;">';
-    // Header
-    html+='<div style="text-align:center;border-bottom:2px solid #D4AF37;padding-bottom:12px;margin-bottom:20px;">';
-    html+='<img src="https://img1.pic.in.th/images/logo-tss-03.png" style="height:48px;display:block;margin:0 auto 8px;object-fit:contain;" alt="logo"/>';
-    html+='<div style="font-size:14px;font-weight:700;">'+C+'</div>';
-    html+='<div style="font-size:20px;font-weight:700;margin-top:6px;">บันทึกข้อความ (Memo)</div>';
-    if(memo.docNo) html+='<div style="font-size:11px;color:#6B7280;">เลขที่ '+memo.docNo+'</div>';
+    // Inject print CSS once
+    if(!document.getElementById("ememo-print-css")){
+      const s=document.createElement("style");s.id="ememo-print-css";
+      s.textContent=`
+        @media print{
+          body>*{display:none!important;}
+          #ememo-print-root{display:block!important;}
+          #ememo-print-root .rpt-header{position:fixed;top:0;left:0;right:0;background:#fff;padding:8mm 16mm 4mm;border-bottom:2px solid #1E3A5F;z-index:1000;}
+          #ememo-print-root .rpt-footer{position:fixed;bottom:0;left:0;right:0;background:#fff;padding:3mm 16mm 5mm;border-top:1px solid #E5E7EB;font-size:9px;color:#9CA3AF;display:flex;justify-content:space-between;}
+          #ememo-print-root .rpt-body{margin-top:36mm;margin-bottom:16mm;padding:0 16mm;}
+          #ememo-print-root table{page-break-inside:avoid;}
+          @page{margin:0;size:A4;@bottom-right{content:"หน้า " counter(page) " / " counter(pages);font-size:9px;color:#9CA3AF;}}
+        }
+        #ememo-print-root{display:none;font-family:'Noto Sans Thai','Sarabun',sans-serif;}
+      `;
+      document.head.appendChild(s);
+    }
+    // Generate draft docNo for preview if not yet assigned
+    const displayDocNo = memo.docNo || ("DRAFT-"+memo.id?.slice(-6)?.toUpperCase());
+    // Fixed header
+    let html='<div class="rpt-header">';
+    html+='<div style="display:flex;align-items:center;gap:14px;">';
+    html+='<img src="https://img1.pic.in.th/images/logo-tss-03.png" style="height:40px;object-fit:contain;" alt="logo"/>';
+    html+='<div style="flex:1;">';
+    html+='<div style="font-size:11px;font-weight:700;color:#1E3A5F;">'+C+'</div>';
+    html+='<div style="font-size:14px;font-weight:700;">บันทึกข้อความ (Memo)';
+    html+=' <span style="font-size:10px;color:#6B7280;font-family:monospace;font-weight:400;">เลขที่ '+displayDocNo+'</span></div>';
     html+='</div>';
-    // Meta table
-    html+='<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;"><tbody>';
-    html+='<tr><td style="width:100px;color:#6B7280;padding:3px 0;">เรื่อง:</td><td style="font-weight:600;">'+(memo.title||"")+'</td>';
-    html+='<td style="width:80px;color:#6B7280;text-align:right;">หมวดหมู่:</td><td style="text-align:right;">'+(memo.category||"")+'</td></tr>';
-    html+='<tr><td style="color:#6B7280;padding:3px 0;">ผู้สร้าง:</td><td>'+(creator.name||"")+(creator.dept?" ("+creator.dept+")":"")+'</td>';
-    html+='<td style="color:#6B7280;text-align:right;">วันที่:</td><td style="text-align:right;">'+(memo.createdAt?fD(memo.createdAt):"")+'</td></tr>';
-    html+='</tbody></table>';
-    html+='<div style="border-top:1px solid #E5E7EB;margin-bottom:20px;"></div>';
-    // Content
-    html+='<div style="font-size:13px;line-height:1.9;white-space:pre-wrap;min-height:120px;margin-bottom:28px;">'+(memo.content||"")+'</div>';
+    html+='<div style="font-size:9px;color:#9CA3AF;text-align:right;">'+fD(new Date().toISOString())+'</div>';
+    html+='</div></div>';
+    // Fixed footer
+    html+='<div class="rpt-footer"><span>'+C+'</span><span>เลขที่ '+displayDocNo+'</span></div>';
+    // Body content
+    html+='<div class="rpt-body" style="font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;">';
+    // If uploaded file (image), embed
+    if(memo.uploadedFile&&(memo.uploadedFile.type==="png"||memo.uploadedFile.type==="jpg"||memo.uploadedFile.type==="jpeg")){
+      html+='<img src="'+memo.uploadedFile.data+'" style="max-width:100%;display:block;margin:0 auto 12px;"/>';
+      if(memo.content) html+='<div style="font-size:12px;color:#374151;white-space:pre-wrap;margin-bottom:12px;">หมายเหตุ: '+memo.content+'</div>';
+    } else {
+      // Meta table
+      const creator=users.find(u=>u.id===memo.createdBy)||{};
+      html+='<table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:12px;"><tbody>';
+      html+='<tr><td style="width:90px;color:#6B7280;padding:3px 0;">เรื่อง:</td><td style="font-weight:600;">'+(memo.title||"")+'</td>';
+      html+='<td style="width:80px;color:#6B7280;text-align:right;">หมวดหมู่:</td><td style="text-align:right;">'+(memo.category||"")+'</td></tr>';
+      html+='<tr><td style="color:#6B7280;padding:3px 0;">ผู้สร้าง:</td><td>'+(creator.name||"-")+(creator.dept?" ("+creator.dept+")":"")+'</td>';
+      html+='<td style="color:#6B7280;text-align:right;">วันที่:</td><td style="text-align:right;">'+(memo.createdAt?fD(memo.createdAt):"")+'</td></tr>';
+      html+='</tbody></table>';
+      html+='<div style="border-top:1px solid #E5E7EB;margin-bottom:18px;"></div>';
+      // Content
+      html+='<div style="font-size:13px;line-height:1.9;white-space:pre-wrap;word-break:break-word;margin-bottom:28px;">'+(memo.content||"")+'</div>';
+    }
     // Signature zones
     if(zones.length>0){
-      html+='<div style="margin-top:32px;border-top:1px solid #E5E7EB;padding-top:20px;">';
-      html+='<div style="font-size:11px;color:#6B7280;font-weight:600;margin-bottom:14px;">ลงนาม</div>';
+      html+='<div style="margin-top:24px;border-top:1px solid #E5E7EB;padding-top:18px;"><div style="font-size:11px;color:#6B7280;font-weight:600;margin-bottom:12px;">ลงนาม</div>';
       html+='<div style="display:flex;gap:24px;flex-wrap:wrap;">';
       zones.forEach(z=>{
+        const u=users.find(x=>x.id===z.assignedTo)||{};
+        const sig=u.signature||"";
         html+='<div style="flex:1;min-width:140px;text-align:center;">';
-        html+='<div style="height:52px;border-bottom:1px solid #111;margin-bottom:6px;position:relative;">';
-        if(z.signerName) html+='<div style="font-size:9px;color:#9CA3AF;position:absolute;bottom:4px;left:0;right:0;">(ลายเซ็น)</div>';
-        html+='</div>';
+        if(sig) html+='<img src="'+sig+'" style="height:48px;display:block;margin:0 auto 4px;"/>';
+        else html+='<div style="height:48px;border-bottom:1px solid #111;margin-bottom:6px;"></div>';
         html+='<div style="font-size:11px;font-weight:600;">'+(z.label||"จุดลงนาม")+'</div>';
-        if(z.signerName) html+='<div style="font-size:10px;color:#6B7280;">'+z.signerName+'</div>';
+        if(u.name||z.signerName) html+='<div style="font-size:10px;color:#6B7280;">'+(u.name||z.signerName||"")+'</div>';
         html+='</div>';
       });
       html+='</div></div>';
     }
     // Approval table
+    const approvals=(memo.workflowLevels||[]).flatMap(lv=>lv.approvers||[]);
     if(approvals.length>0){
-      html+='<div style="margin-top:24px;border-top:1px solid #E5E7EB;padding-top:16px;">';
-      html+='<div style="font-size:11px;color:#6B7280;font-weight:600;margin-bottom:10px;">ขั้นตอนการอนุมัติ</div>';
+      html+='<div style="margin-top:24px;border-top:1px solid #E5E7EB;padding-top:14px;">';
+      html+='<div style="font-size:11px;color:#6B7280;font-weight:600;margin-bottom:8px;">ขั้นตอนการอนุมัติ</div>';
       html+='<table style="width:100%;border-collapse:collapse;font-size:11px;">';
-      html+='<tr style="background:#F9FAFB;"><th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ผู้อนุมัติ</th>';
-      html+='<th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:80px;">สถานะ</th>';
-      html+='<th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:100px;">วันที่</th>';
-      html+='<th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ลายเซ็น / ความคิดเห็น</th></tr>';
+      html+='<tr style="background:#F9FAFB;"><th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ผู้อนุมัติ</th><th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:80px;">สถานะ</th><th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:100px;">วันที่</th><th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ลายเซ็น / ความคิดเห็น</th></tr>';
       approvals.forEach(ap=>{
         const u2=users.find(x=>x.id===ap.userId)||{};
         const sl=ap.status==="approved"?"✓ อนุมัติ":ap.status==="rejected"?"✗ ปฏิเสธ":"○ รอ";
-        const sig=ap.signature||u2.signature||"";
+        const sig2=ap.signature||u2.signature||"";
         html+='<tr><td style="padding:5px 8px;border:1px solid #E5E7EB;">'+(ap.name||u2.name||ap.email||"-")+'</td>';
         html+='<td style="padding:5px 8px;border:1px solid #E5E7EB;text-align:center;">'+sl+'</td>';
         html+='<td style="padding:5px 8px;border:1px solid #E5E7EB;text-align:center;">'+(ap.actionAt?fD(ap.actionAt):"-")+'</td>';
         html+='<td style="padding:5px 8px;border:1px solid #E5E7EB;">';
-        if(sig) html+='<img src="'+sig+'" style="height:32px;display:block;margin-bottom:2px;border:1px solid #E5E7EB;border-radius:3px;background:#fff;padding:2px;"/>';
-        html+=(ap.comment||"");
-        html+='</td></tr>';
+        if(sig2) html+='<img src="'+sig2+'" style="height:32px;display:block;margin-bottom:2px;border:1px solid #E5E7EB;border-radius:3px;background:#fff;padding:2px;"/>';
+        html+=(ap.comment||"")+'</td></tr>';
       });
       html+='</table></div>';
     }
-    // Footer
-    html+='<div style="position:absolute;bottom:16mm;left:22mm;right:22mm;display:flex;justify-content:space-between;font-size:10px;color:#9CA3AF;border-top:1px solid #F3F4F6;padding-top:8px;">';
-    html+='<span>'+C+'</span><span>พิมพ์เมื่อ '+fD(new Date().toISOString())+'</span></div>';
-    html+='</div>';
+    html+='</div>'; // close rpt-body
     root.innerHTML=html;
     setTimeout(()=>{ window.print(); setTimeout(()=>{ root.innerHTML=""; setPrinting(false); },500); },200);
   };
+
 
   return (
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",background:"rgba(0,0,0,.75)",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
@@ -2074,7 +2101,7 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
               />
               <div style={{fontSize:14,fontWeight:700,color:"#111"}}>{COMPANY}</div>
               <div style={{fontSize:20,fontWeight:700,marginTop:6}}>บันทึกข้อความ (Memo)</div>
-              {memo.docNo&&<div style={{fontSize:11,color:"#6B7280",marginTop:3}}>เลขที่ {memo.docNo}</div>}
+              <div style={{fontSize:11,color:"#6B7280",marginTop:3,fontFamily:"monospace"}}>เลขที่ {memo.docNo||("DRAFT-"+(memo.id||"").slice(-6).toUpperCase())}</div>
             </div>
             )} {/* end uploadedFile ternary */}
             {!memo.uploadedFile && <><table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:12}}><tbody>
