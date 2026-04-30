@@ -2145,7 +2145,7 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
 
   useEffect(()=>{ injectPrintCss(); }, []);
 
-  const creator = users.find(u=>u.id===memo.createdBy) || curUser || {};
+  const creator = users.find(u=>u.id===memo.createdBy)||{};
   const allUsers = users.filter(u=>u.active);
   const approvals = (memo.workflowLevels||[]).flatMap(lv=>lv.approvers||[]);
   const fmtD = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
