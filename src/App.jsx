@@ -609,24 +609,107 @@ function MemoRow({ memo, users, onClick, highlight, curUser, onRecall, onEdit })
 }
 
 function ActionModal({ modal, onClose, onApprove, onReject, curUser }) {
-  const [comment, setComment] = useState("");
-  const isA = modal.type==="approve";
+  const [comment,  setComment]  = useState("");
+  const [sigMode,  setSigMode]  = useState("saved"); // "saved" | "draw"
+  const [drawnSig, setDrawnSig] = useState(null);
+  const canvasRef = useRef();
+  const drawing   = useRef(false);
+  const isA       = modal.type === "approve";
+  const now       = new Date();
+  const nowTh     = now.toLocaleDateString("th-TH",{weekday:"long",day:"2-digit",month:"long",year:"numeric"})
+                  + " " + now.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
+
+  // Canvas drawing helpers
+  const getPos = (e, canvas) => {
+    const r = canvas.getBoundingClientRect();
+    const src = e.touches?.[0] || e;
+    return { x:(src.clientX-r.left)*(canvas.width/r.width), y:(src.clientY-r.top)*(canvas.height/r.height) };
+  };
+  const startDraw = e => {
+    drawing.current = true;
+    const c = canvasRef.current; const ctx = c.getContext("2d");
+    const p = getPos(e,c); ctx.beginPath(); ctx.moveTo(p.x,p.y);
+    e.preventDefault();
+  };
+  const draw = e => {
+    if(!drawing.current) return;
+    const c = canvasRef.current; const ctx = c.getContext("2d");
+    const p = getPos(e,c);
+    ctx.lineWidth=2.2; ctx.lineCap="round"; ctx.strokeStyle="#111";
+    ctx.lineTo(p.x,p.y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(p.x,p.y);
+    e.preventDefault();
+  };
+  const endDraw = () => {
+    drawing.current = false;
+    setDrawnSig(canvasRef.current?.toDataURL("image/png")||null);
+  };
+  const clearCanvas = () => {
+    const c = canvasRef.current; if(!c) return;
+    c.getContext("2d").clearRect(0,0,c.width,c.height);
+    setDrawnSig(null);
+  };
+
+  const activeSig = sigMode==="draw" ? drawnSig : (curUser.signature||null);
+
+  const handleConfirm = () => {
+    const sigToUse = activeSig || null;
+    isA ? onApprove(comment, sigToUse) : onReject(comment);
+  };
+
   return (
-    <div style={{position:"fixed",inset:0,zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.5)"}}>
-      <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:24,width:380,boxShadow:"0 20px 60px rgba(0,0,0,.2)"}}>
-        <div style={{fontSize:15,fontWeight:600,marginBottom:4,color:"#111"}}>{isA?"ยืนยันการอนุมัติ":"ยืนยันการปฏิเสธ"}</div>
-        <div style={{fontSize:12,color:"#6B7280",marginBottom:16,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{modal.memo.title}</div>
-        {curUser.signature && isA && (
-          <div style={{marginBottom:12}}>
-            <div style={{fontSize:11,color:"#6B7280",marginBottom:4}}>ลายเซ็นที่จะใช้:</div>
-            <img src={curUser.signature} alt="sig" style={{maxHeight:48,border:"1px solid #E5E7EB",borderRadius:6,background:"#F9FAFB",padding:3}}/>
+    <div style={{position:"fixed",inset:0,zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.55)"}}>
+      <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:14,padding:24,width:420,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.25)"}}>
+        {/* Header */}
+        <div style={{fontSize:15,fontWeight:700,marginBottom:2,color:"#111"}}>{isA?"✅ ยืนยันการอนุมัติ":"❌ ยืนยันการปฏิเสธ"}</div>
+        <div style={{fontSize:12,color:"#6B7280",marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{modal.memo.title}</div>
+
+        {/* Timestamp */}
+        <div style={{display:"inline-flex",alignItems:"center",gap:5,background:"#F0FDF4",border:"1px solid #A7F3D0",borderRadius:6,padding:"4px 10px",fontSize:11,color:"#065F46",marginBottom:14}}>
+          🕐 {nowTh}
+        </div>
+
+        {/* Signature section (approve only) */}
+        {isA && (
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#6B7280",marginBottom:6,textTransform:"uppercase",letterSpacing:.4}}>ลายเซ็น</div>
+            {/* Tab */}
+            {curUser.signature && (
+              <div style={{display:"flex",gap:4,marginBottom:8}}>
+                {[["saved","ใช้ลายเซ็นที่บันทึก"],["draw","วาดใหม่"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>setSigMode(k)} style={{flex:1,padding:"5px 0",fontSize:11,fontWeight:sigMode===k?600:400,background:sigMode===k?"#111":"#F9FAFB",color:sigMode===k?"#fff":"#6B7280",border:"1px solid #E5E7EB",borderRadius:5,cursor:"pointer"}}>{l}</button>
+                ))}
+              </div>
+            )}
+            {/* Saved sig */}
+            {sigMode==="saved" && curUser.signature && (
+              <div style={{border:"1px solid #E5E7EB",borderRadius:8,padding:8,background:"#FAFAFA",textAlign:"center"}}>
+                <img src={curUser.signature} alt="sig" style={{maxHeight:60,maxWidth:"100%",objectFit:"contain"}}/>
+              </div>
+            )}
+            {/* Draw canvas */}
+            {(sigMode==="draw" || !curUser.signature) && (
+              <div>
+                <canvas ref={canvasRef} width={360} height={100}
+                  style={{border:"1.5px dashed #D1D5DB",borderRadius:8,background:"#fff",cursor:"crosshair",touchAction:"none",width:"100%",display:"block"}}
+                  onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+                  onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
+                />
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
+                  <span style={{fontSize:10,color:"#9CA3AF"}}>วาดลายเซ็นในกล่องนี้</span>
+                  <button onClick={clearCanvas} style={{fontSize:10,color:"#DC2626",background:"none",border:"none",cursor:"pointer",padding:0}}>ล้าง</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
+
         <Field label="ความคิดเห็น (ถ้ามี)">
           <textarea value={comment} onChange={e=>setComment(e.target.value)} rows={3} style={{...IS,resize:"none",fontFamily:"inherit"}}/>
         </Field>
         <div style={{display:"flex",gap:8,marginTop:8}}>
-          <button onClick={()=>isA?onApprove(comment):onReject(comment)} style={{flex:1,padding:10,background:isA?GOLD:"#DC2626",color:isA?BLACK:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>{isA?"✓ อนุมัติ":"✕ ปฏิเสธ"}</button>
+          <button onClick={handleConfirm} style={{flex:1,padding:10,background:isA?GOLD:"#DC2626",color:isA?BLACK:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            {isA?"✓ อนุมัติ":"✕ ปฏิเสธ"}
+          </button>
           <button onClick={onClose} style={{flex:1,padding:10,background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:13,cursor:"pointer"}}>ยกเลิก</button>
         </div>
       </div>
@@ -956,29 +1039,46 @@ function WorkflowLevelBuilder({ levels, setLevels, users, curUser }) {
 }
 
 function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSubmit, onCancel, isRecall, onOpenSigZones }) {
-  const fileRef = useRef();
+  const fileRef      = useRef();
+  const memoFileRef  = useRef();
   const [showPreview, setShowPreview] = useState(false);
-  const update  = (k,v) => setEditMemo(p=>({...p,[k]:v}));
-  const setNotify=(fn)=>setEditMemo(p=>({...p,notify:typeof fn==="function"?fn(p.notify||{}):fn}));
+  const [memoMode,    setMemoMode]    = useState(editMemo.uploadedFile ? "upload" : "type"); // "type"|"upload"
+  const update   = (k,v) => setEditMemo(p=>({...p,[k]:v}));
+  const setNotify= fn    => setEditMemo(p=>({...p,notify:typeof fn==="function"?fn(p.notify||{}):fn}));
+
   const handleFile = ev => {
     const f=ev.target.files[0]; if(!f) return;
     const r=new FileReader();
     r.onload=e=>{const att={id:newId("a"),name:f.name,size:f.size>1024*1024?(f.size/1024/1024).toFixed(1)+" MB":Math.round(f.size/1024)+" KB",type:f.name.split(".").pop().toLowerCase(),data:e.target.result};setEditMemo(p=>({...p,attachments:[...(p.attachments||[]),att]}));};
     r.readAsDataURL(f); ev.target.value="";
   };
-  const levels = editMemo.workflowLevels || [];
+
+  // Upload the main memo document (PDF/Word)
+  const handleMemoFile = ev => {
+    const f = ev.target.files[0]; if(!f) return;
+    const allowed = ["pdf","doc","docx","png","jpg","jpeg"];
+    const ext = f.name.split(".").pop().toLowerCase();
+    if(!allowed.includes(ext)){ alert("รองรับ PDF, Word (.doc/.docx), หรือรูปภาพเท่านั้น"); return; }
+    const r = new FileReader();
+    r.onload = e => {
+      setEditMemo(p=>({...p,
+        uploadedFile: { name:f.name, size:f.size>1024*1024?(f.size/1024/1024).toFixed(1)+" MB":Math.round(f.size/1024)+" KB", type:ext, data:e.target.result },
+        content: p.content || `[แนบไฟล์: ${f.name}]`,
+      }));
+    };
+    r.readAsDataURL(f); ev.target.value="";
+  };
+
+  const levels    = editMemo.workflowLevels || [];
   const setLevels = fn => setEditMemo(p=>({...p,workflowLevels:typeof fn==="function"?fn(p.workflowLevels||[]):fn}));
 
   return (
     <div style={{padding:24}}>
       {showPreview && (
         <ErrorBoundary>
-          <MemoPDFPreview
-            memo={editMemo}
-            users={users}
-            curUser={curUser}
-            onSaveZones={zones => { setEditMemo(p=>({...p,signatureZones:zones})); setShowPreview(false); }}
-            onClose={() => setShowPreview(false)}
+          <MemoPDFPreview memo={editMemo} users={users} curUser={curUser}
+            onSaveZones={zones=>{ setEditMemo(p=>({...p,signatureZones:zones})); setShowPreview(false); }}
+            onClose={()=>setShowPreview(false)}
           />
         </ErrorBoundary>
       )}
@@ -993,10 +1093,49 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
         <div>
           <Section>
             <Field label="ชื่อเรื่อง *"><input value={editMemo.title||""} onChange={e=>update("title",e.target.value)} placeholder="กรอกชื่อเรื่อง..." style={IS}/></Field>
-            {/* [5] Category with custom input */}
             <Field label="หมวดหมู่"><CategoryField value={editMemo.category||"ทั่วไป"} onChange={v=>update("category",v)}/></Field>
-            <Field label="เนื้อหา"><textarea value={editMemo.content||""} onChange={e=>update("content",e.target.value)} rows={8} placeholder="กรอกเนื้อหา..." style={{...IS,resize:"vertical",lineHeight:1.7,fontFamily:"inherit"}}/></Field>
+
+            {/* Mode toggle */}
+            <div style={{display:"flex",gap:4,marginBottom:10,background:"#F9FAFB",borderRadius:8,padding:3,border:"1px solid #F3F4F6"}}>
+              {[["type","✏ พิมพ์เนื้อหา"],["upload","📤 Upload ไฟล์เอกสาร"]].map(([k,l])=>(
+                <button key={k} onClick={()=>setMemoMode(k)} style={{flex:1,padding:"7px 0",fontSize:12,fontWeight:memoMode===k?600:400,background:memoMode===k?"#fff":"transparent",color:memoMode===k?"#111":"#9CA3AF",border:memoMode===k?"1px solid #E5E7EB":"1px solid transparent",borderRadius:6,cursor:"pointer",transition:"all .15s"}}>{l}</button>
+              ))}
+            </div>
+
+            {memoMode==="type" ? (
+              <Field label="เนื้อหา">
+                <textarea value={editMemo.content||""} onChange={e=>update("content",e.target.value)} rows={8} placeholder="กรอกเนื้อหา..." style={{...IS,resize:"vertical",lineHeight:1.7,fontFamily:"inherit"}}/>
+              </Field>
+            ) : (
+              <div>
+                <input ref={memoFileRef} type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" style={{display:"none"}} onChange={handleMemoFile}/>
+                {editMemo.uploadedFile ? (
+                  <div style={{border:"1px solid #A7F3D0",borderRadius:8,padding:"12px 14px",background:"#ECFDF5",display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:24}}>{editMemo.uploadedFile.type==="pdf"?"📄":editMemo.uploadedFile.type==="docx"||editMemo.uploadedFile.type==="doc"?"📝":"🖼"}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:"#065F46",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{editMemo.uploadedFile.name}</div>
+                      <div style={{fontSize:11,color:"#9CA3AF"}}>{editMemo.uploadedFile.size}</div>
+                    </div>
+                    <button onClick={()=>{ update("uploadedFile",null); }} style={{...BTN_X,color:"#DC2626",border:"1px solid #FECACA",borderRadius:5,background:"#FFF1F1",padding:"3px 7px"}}>✕</button>
+                  </div>
+                ) : (
+                  <div onClick={()=>memoFileRef.current?.click()} style={{border:"2px dashed #E5E7EB",borderRadius:8,padding:"32px 16px",textAlign:"center",cursor:"pointer",background:"#FAFAFA"}}
+                    onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor=GOLD;}}
+                    onDragLeave={e=>e.currentTarget.style.borderColor="#E5E7EB"}
+                    onDrop={e=>{ e.preventDefault(); e.currentTarget.style.borderColor="#E5E7EB"; const f=e.dataTransfer.files[0]; if(f){const fakeEv={target:{files:[f],value:""}};handleMemoFile(fakeEv);} }}>
+                    <div style={{fontSize:28,marginBottom:6}}>📤</div>
+                    <div style={{fontSize:13,fontWeight:500,color:"#374151"}}>คลิกหรือลากไฟล์มาวาง</div>
+                    <div style={{fontSize:11,color:"#9CA3AF",marginTop:2}}>PDF, Word (.doc/.docx), หรือรูปภาพ</div>
+                  </div>
+                )}
+                {/* ยังพิมพ์ note เพิ่มได้ */}
+                <Field label="หมายเหตุ (ถ้ามี)">
+                  <textarea value={editMemo.content||""} onChange={e=>update("content",e.target.value)} rows={3} placeholder="หมายเหตุเพิ่มเติม..." style={{...IS,resize:"none",fontFamily:"inherit"}}/>
+                </Field>
+              </div>
+            )}
           </Section>
+
           <Section title="เอกสารแนบ" extra={<button onClick={()=>fileRef.current?.click()} style={BTN_GRAY}>+ แนบไฟล์</button>}>
             <input ref={fileRef} type="file" style={{display:"none"}} onChange={handleFile}/>
             {(editMemo.attachments||[]).map(a=>(
@@ -1004,7 +1143,6 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
             ))}
             {!(editMemo.attachments||[]).length&&<div style={{fontSize:12,color:"#9CA3AF",textAlign:"center",padding:"4px 0"}}>ยังไม่มีเอกสารแนบ</div>}
           </Section>
-          {/* [2] Signature zones button */}
           {editMemo.id && (
             <button onClick={onOpenSigZones} style={{...BTN_GRAY,width:"100%",padding:"9px",marginBottom:12,textAlign:"center"}}>
               ✍ กำหนดจุดลงนาม {editMemo.signatureZones?.length?`(${editMemo.signatureZones.length} จุด)`:""}
@@ -1012,7 +1150,6 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
           )}
         </div>
         <div>
-          {/* [3] Level-based workflow builder */}
           <Section title="ขั้นตอนการอนุมัติ">
             <WorkflowLevelBuilder levels={levels} setLevels={setLevels} users={users} curUser={curUser}/>
           </Section>
@@ -1021,7 +1158,7 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
             <button onClick={()=>onSubmit(false)} style={{...BTN_GOLD,width:"100%",padding:"11px",fontSize:13}}>{isRecall?"ส่งกลับเพื่ออนุมัติ":"ส่งเพื่ออนุมัติ"}</button>
             <button onClick={()=>onSubmit(true)}  style={{padding:"11px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>บันทึกร่าง</button>
             <button onClick={()=>setShowPreview(true)} style={{padding:"11px",background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:12,fontWeight:500,cursor:"pointer"}}>👁 ดูตัวอย่าง / กำหนดจุดลงนาม / โหลด PDF</button>
-            <button onClick={onCancel}             style={{padding:"11px",background:"none",color:"#9CA3AF",border:"none",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button>
+            <button onClick={onCancel} style={{padding:"11px",background:"none",color:"#9CA3AF",border:"none",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button>
           </div>
         </div>
       </div>
@@ -1069,6 +1206,28 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
               <Avatar userId={memo.createdBy} users={users} size={32}/>
               <div><div style={{fontSize:13,fontWeight:500,color:"#111"}}>{(users.find(u=>u.id===memo.createdBy)||{}).name}</div><div style={{fontSize:11,color:"#9CA3AF"}}>{fmtDate(memo.createdAt)} · {memo.category}</div></div>
             </div>
+            {/* Uploaded file viewer */}
+            {memo.uploadedFile && (
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#6B7280",marginBottom:6,textTransform:"uppercase",letterSpacing:.4}}>ไฟล์เอกสารหลัก</div>
+                <div style={{border:"1px solid #E5E7EB",borderRadius:8,overflow:"hidden",background:"#FAFAFA"}}>
+                  {memo.uploadedFile.type==="pdf" && memo.uploadedFile.data ? (
+                    <iframe src={memo.uploadedFile.data} style={{width:"100%",height:480,border:"none",display:"block"}} title="memo-pdf"/>
+                  ) : (memo.uploadedFile.type==="png"||memo.uploadedFile.type==="jpg"||memo.uploadedFile.type==="jpeg") && memo.uploadedFile.data ? (
+                    <img src={memo.uploadedFile.data} alt="memo" style={{width:"100%",maxHeight:480,objectFit:"contain",display:"block"}}/>
+                  ) : (
+                    <div style={{padding:"16px 20px",display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:24}}>{memo.uploadedFile.type==="docx"||memo.uploadedFile.type==="doc"?"📝":"📄"}</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:13,fontWeight:500,color:"#111"}}>{memo.uploadedFile.name}</div>
+                        <div style={{fontSize:11,color:"#9CA3AF"}}>{memo.uploadedFile.size}</div>
+                      </div>
+                      {memo.uploadedFile.data&&<a href={memo.uploadedFile.data} download={memo.uploadedFile.name} style={{padding:"6px 14px",background:GOLD,color:BLACK,borderRadius:6,fontSize:12,fontWeight:600,textDecoration:"none"}}>⬇ ดาวน์โหลด</a>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
             <div style={{fontSize:14,lineHeight:1.8,whiteSpace:"pre-wrap",color:"#374141"}}>{memo.content}</div>
           </Section>
           <Section title="เอกสารแนบ" extra={(isCreator||canApprove)&&<><button onClick={()=>fileRef.current?.click()} style={BTN_GRAY}>+ แนบไฟล์</button><input ref={fileRef} type="file" style={{display:"none"}} onChange={handleFile}/></>}>
@@ -1387,16 +1546,15 @@ function injectPrintCss(){
   document.head.appendChild(s);
 }
 
-function MemoPDFPreview({ memo, users, curUser, onSaveZones, onClose }) {
+function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
   const [zones, setZones] = useState((memo.signatureZones||[]).map((z,i)=>({...z,x:z.x??(10+i*35),y:z.y??72})));
   const [printing, setPrinting] = useState(false);
-  const [dragInfo, setDragInfo] = useState(null);
+  const [dragInfo, setDragInfo] = useState(null); // {idx, startX, startY, origX, origY}
   const previewRef = useRef();
 
   useEffect(()=>{ injectPrintCss(); }, []);
 
-  // ถ้า memo ยังไม่มี createdBy (กำลังสร้างใหม่) ให้ใช้ curUser แทน
-  const creator = users.find(u=>u.id===memo.createdBy) || curUser || {};
+  const creator = users.find(u=>u.id===memo.createdBy)||{};
   const allUsers = users.filter(u=>u.active);
   const approvals = (memo.workflowLevels||[]).flatMap(lv=>lv.approvers||[]);
   const fmtD = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
@@ -1605,7 +1763,12 @@ function MemoPDFPreview({ memo, users, curUser, onSaveZones, onClose }) {
                     return <tr key={i}>
                       <td style={{padding:"6px 10px",border:"1px solid #E5E7EB"}}>{ap.name||u.name||ap.email||"-"}</td>
                       <td style={{padding:"6px 10px",border:"1px solid #E5E7EB",color:sc.c,fontWeight:500}}>{sc.l}</td>
-                      <td style={{padding:"6px 10px",border:"1px solid #E5E7EB",color:"#6B7280"}}>{ap.actionAt?fmtD(ap.actionAt):"-"}</td>
+                      <td style={{padding:"6px 10px",border:"1px solid #E5E7EB",color:"#6B7280",whiteSpace:"nowrap"}}>
+                        {ap.actionAt
+                          ? <><div>{new Date(ap.actionAt).toLocaleDateString("th-TH",{day:"2-digit",month:"short",year:"numeric"})}</div>
+                              <div style={{fontSize:10,color:"#9CA3AF"}}>{new Date(ap.actionAt).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})}</div></>
+                          : "-"}
+                      </td>
                       <td style={{padding:"6px 10px",border:"1px solid #E5E7EB"}}>
                         {sigImg&&<img src={sigImg} alt="sig" style={{height:32,display:"block",marginBottom:2,border:"1px solid #E5E7EB",borderRadius:3,background:"#fff",padding:2}}/>}
                         <span style={{fontSize:11,color:"#6B7280"}}>{ap.comment||""}</span>
@@ -1741,16 +1904,17 @@ export default function EMemo() {
   };
 
   // [3] Level-based approval ─────────────────────────────────────────────────
-  const approveMemo = async (memo, comment) => {
+  const approveMemo = async (memo, comment, drawnSig) => {
     const now     = new Date().toISOString();
     const lvIdx   = memo.currentLevel||0;
+    const sigToUse = drawnSig || curUser.signature || null;
     const levels  = (memo.workflowLevels||[]).map((lv,li)=>{
       if(li!==lvIdx) return lv;
       return {...lv, approvers:(lv.approvers||[]).map(ap=>{
         const matchUser  = ap.userId&&ap.userId===curUser.id;
         const matchEmail = ap.email&&ap.email===curUser.email;
         if((matchUser||matchEmail)&&ap.status==="pending")
-          return {...ap, status:"approved", comment, actionAt:now, signature:curUser.signature||null};
+          return {...ap, status:"approved", comment, actionAt:now, signature:sigToUse};
         return ap;
       })};
     });
@@ -1811,7 +1975,7 @@ export default function EMemo() {
     <div style={{fontFamily:"'Noto Sans Thai','Sarabun',sans-serif",display:"flex",height:"100vh",overflow:"hidden"}}>
       <Toast t={toast}/>
       {syncing&&<div style={{position:"fixed",bottom:16,left:216,background:"#FFFBEB",color:"#B45309",border:"1px solid #FCD34D",borderRadius:6,padding:"4px 10px",fontSize:11,zIndex:100}}>⟳ กำลังบันทึก...</div>}
-      {modal&&<ActionModal modal={modal} onClose={()=>setModal(null)} onApprove={c=>approveMemo(modal.memo,c)} onReject={c=>rejectMemo(modal.memo,c)} curUser={curUser}/>}
+      {modal&&<ActionModal modal={modal} onClose={()=>setModal(null)} onApprove={(c,sig)=>approveMemo(modal.memo,c,sig)} onReject={c=>rejectMemo(modal.memo,c)} curUser={curUser}/>}
       {showProfile&&<ProfileModal curUser={curUser} onClose={()=>setShowProfile(false)} showToast={showToast}/>}
       {showTplManager&&can(curUser.role,"settings")&&<DocxTemplateManager templates={pdfTemplates} onSave={async tpls=>{await writePdfTemplates(tpls);showToast("บันทึก Template แล้ว");setShowTplManager(false);}} onClose={()=>setShowTplManager(false)}/>}
       {showSigZones&&editMemo&&<SignatureZonesModal memo={editMemo} users={users} curUser={curUser} onSave={saveSigZones} onClose={()=>setShowSigZones(false)}/>}
