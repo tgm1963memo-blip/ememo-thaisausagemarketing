@@ -2538,7 +2538,7 @@ export default function EMemo() {
         .some(ap=>(ap.userId&&ap.userId===curUser.id)||(ap.email&&ap.email===curUser.email));
       if (isApprover) return true;
       if (curUser.role === "admin" && curUser.dept) {
-        const creator = users.find(u=>u.id===m.createdBy);
+        const creator = users.find(u=>u.id===memo.createdBy) || curUser || {};
         const memoDept = m.dept || creator?.dept;
         if (memoDept && memoDept === curUser.dept) return true;
       }
