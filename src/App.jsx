@@ -199,16 +199,23 @@ function printSystemPDF(memo, users) {
   if(!root){ root=document.createElement("div"); root.id="ememo-print-root"; document.body.appendChild(root); }
   if(!document.getElementById("ememo-print-css")){
     const s=document.createElement("style"); s.id="ememo-print-css";
-    s.textContent=`@media print{body>*{display:none!important;}#ememo-print-root{display:block!important;}}#ememo-print-root{display:none;font-family:'Noto Sans Thai','Sarabun',sans-serif;}`;
+    s.textContent=`@media print{body>*{display:none!important;}#ememo-print-root{display:block!important;}#ememo-print-root table{page-break-inside:avoid;}#ememo-print-root .page-break{page-break-before:always;}}#ememo-print-root{display:none;font-family:'Noto Sans Thai','Sarabun',sans-serif;}`;
     document.head.appendChild(s);
   }
   let html = '<div style="width:210mm;min-height:297mm;margin:0 auto;padding:20mm 22mm;box-sizing:border-box;font-family:Noto Sans Thai,Sarabun,sans-serif;font-size:13px;color:#111;">';
   html += '<div style="text-align:center;border-bottom:2px solid #D4AF37;padding-bottom:12px;margin-bottom:20px;">';
-  html += '<img src="https://img1.pic.in.th/images/logo-tss-03.png" style="height:48px;display:block;margin:0 auto 8px;object-fit:contain;" alt="logo"/>';
-  html += '<div style="font-size:14px;font-weight:700;">'+COMPANY+'</div>';
-  html += '<div style="font-size:20px;font-weight:700;margin-top:6px;">บันทึกข้อความ (Memo)</div>';
-  if(memo.docNo) html += '<div style="font-size:11px;color:#6B7280;">เลขที่ '+memo.docNo+'</div>';
-  html += '</div>';
+  // If uploaded image file, show it as document
+  if(memo.uploadedFile && (memo.uploadedFile.type==="png"||memo.uploadedFile.type==="jpg"||memo.uploadedFile.type==="jpeg")){
+    html += '<img src="'+memo.uploadedFile.data+'" style="max-width:100%;display:block;margin:0 auto 12px;"/>';
+    if(memo.content) html += '<div style="font-size:12px;color:#374151;margin-bottom:8px;white-space:pre-wrap;">หมายเหตุ: '+memo.content+'</div>';
+    html += '</div>';
+  } else {
+    html += '<img src="https://img1.pic.in.th/images/logo-tss-03.png" style="height:48px;display:block;margin:0 auto 8px;object-fit:contain;" alt="logo"/>';
+    html += '<div style="font-size:14px;font-weight:700;">'+COMPANY+'</div>';
+    html += '<div style="font-size:20px;font-weight:700;margin-top:6px;">บันทึกข้อความ (Memo)</div>';
+    if(memo.docNo) html += '<div style="font-size:11px;color:#6B7280;">เลขที่ '+memo.docNo+'</div>';
+    html += '</div>';
+  }
   html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;"><tbody>';
   html += '<tr><td style="width:90px;color:#6B7280;padding:3px 0;">เรื่อง:</td><td style="font-weight:600;">'+(memo.title||"")+'</td>';
   html += '<td style="width:80px;color:#6B7280;text-align:right;">หมวดหมู่:</td><td style="text-align:right;">'+(memo.category||"")+'</td></tr>';
@@ -217,7 +224,7 @@ function printSystemPDF(memo, users) {
   if(memo.docNo) html += '<tr><td style="color:#6B7280;padding:3px 0;">เลขที่:</td><td colspan="3" style="font-family:monospace;font-weight:600;">'+memo.docNo+'</td></tr>';
   html += '</tbody></table>';
   html += '<div style="border-top:1px solid #E5E7EB;margin-bottom:20px;"></div>';
-  html += '<div style="font-size:13px;line-height:1.9;white-space:pre-wrap;min-height:140px;margin-bottom:32px;">'+(memo.content||"")+'</div>';
+  html += '<div style="font-size:13px;line-height:1.9;white-space:pre-wrap;margin-bottom:32px;word-break:break-word;">'+(memo.content||"")+'</div>';
   // Signature zones
   const zones = memo.signatureZones||[];
   if(zones.length>0){
@@ -924,12 +931,129 @@ function Dashboard({ memoList, users, curUser, inboxCount, onOpen }) {
   );
 }
 
+// Excel export helper
+async function exportMemosToExcel(memoList, users) {
+  const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+  const fmtD = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"2-digit",year:"numeric"});
+  const rows = memoList.map(m => {
+    const creator = users.find(u=>u.id===m.createdBy)||{};
+    const approvals = (m.workflowLevels||[]).flatMap(lv=>lv.approvers||[]);
+    const lastAction = approvals.filter(a=>a.actionAt).sort((a,b)=>new Date(b.actionAt)-new Date(a.actionAt))[0];
+    return {
+      "เลขที่เอกสาร": m.docNo||"-",
+      "ชื่อเรื่อง": m.title||"",
+      "หมวดหมู่": m.category||"",
+      "สถานะ": STATUS_LABEL[m.status]||m.status,
+      "ผู้สร้าง": creator.name||"-",
+      "แผนก": creator.dept||"-",
+      "วันที่สร้าง": fmtD(m.createdAt),
+      "ผู้อนุมัติล่าสุด": lastAction ? (users.find(u=>u.id===lastAction.userId)||{}).name||lastAction.email||"-" : "-",
+      "วันที่อนุมัติ": lastAction ? fmtD(lastAction.actionAt) : "-",
+      "ความคิดเห็น": (approvals.map(a=>a.comment).filter(Boolean).join("; "))||"-",
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  // Column widths
+  ws["!cols"] = [14,40,16,14,20,14,14,20,14,30].map(w=>({wch:w}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Memos");
+  XLSX.writeFile(wb, `memo_export_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
 function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRecall, onEdit, highlight }) {
-  const sorted=[...memoList].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+  const [fStatus,   setFStatus]   = useState("");
+  const [fCategory, setFCategory] = useState("");
+  const [fDateFrom, setFDateFrom] = useState("");
+  const [fDateTo,   setFDateTo]   = useState("");
+  const [exporting, setExporting] = useState(false);
+
+  const filtered = memoList.filter(m => {
+    if (fStatus   && m.status   !== fStatus)   return false;
+    if (fCategory && m.category !== fCategory) return false;
+    if (fDateFrom && m.createdAt < fDateFrom)  return false;
+    if (fDateTo   && m.createdAt > fDateTo+"T23:59:59") return false;
+    return true;
+  });
+  const sorted = [...filtered].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+  const hasFilter = fStatus||fCategory||fDateFrom||fDateTo;
+
+  const handleExport = async () => {
+    setExporting(true);
+    try { await exportMemosToExcel(sorted, users); }
+    catch(e) { alert("Export ไม่สำเร็จ: "+e.message); }
+    finally { setExporting(false); }
+  };
+
   return (
     <div style={{padding:24}}>
-      <div style={{marginBottom:16}}><div style={{fontSize:18,fontWeight:600,color:"#111"}}>{title}</div><div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>{subtitle||sorted.length+" รายการ"}</div></div>
-      {sorted.length===0?<Empty msg="ไม่พบ Memo"/>:sorted.map(m=><MemoRow key={m.id} memo={m} users={users} onClick={()=>onOpen(m.id)} highlight={highlight} curUser={curUser} onRecall={onRecall} onEdit={onEdit}/>)}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:16,gap:12,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:600,color:"#111"}}>{title}</div>
+          <div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>
+            {hasFilter ? `${sorted.length} / ${memoList.length} รายการ (ตัวกรองอยู่)` : subtitle||sorted.length+" รายการ"}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          {/* Filters */}
+          <select value={fStatus} onChange={e=>setFStatus(e.target.value)}
+            style={{padding:"6px 8px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,color:"#374151",background:"#fff"}}>
+            <option value="">สถานะทั้งหมด</option>
+            {Object.entries(STATUS_LABEL).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+          </select>
+          <select value={fCategory} onChange={e=>setFCategory(e.target.value)}
+            style={{padding:"6px 8px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,color:"#374151",background:"#fff"}}>
+            <option value="">หมวดหมู่ทั้งหมด</option>
+            {BASE_CATEGORIES.map(c=><option key={c}>{c}</option>)}
+          </select>
+          <input type="date" value={fDateFrom} onChange={e=>setFDateFrom(e.target.value)}
+            style={{padding:"6px 8px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12}}/>
+          <input type="date" value={fDateTo} onChange={e=>setFDateTo(e.target.value)}
+            style={{padding:"6px 8px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12}}/>
+          {hasFilter && <button onClick={()=>{setFStatus("");setFCategory("");setFDateFrom("");setFDateTo("");}}
+            style={{padding:"6px 10px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:11,background:"#F9FAFB",cursor:"pointer",color:"#6B7280"}}>
+            ✕ ล้างตัวกรอง
+          </button>}
+          <button onClick={handleExport} disabled={exporting}
+            style={{padding:"6px 12px",background:exporting?"#9CA3AF":"#16A34A",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:exporting?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:4}}>
+            {exporting?"กำลัง Export...":"📊 Export Excel"}
+          </button>
+        </div>
+      </div>
+
+      {/* Table view */}
+      {sorted.length===0 ? <Empty msg="ไม่พบ Memo"/> : (
+        <div style={{background:"#fff",border:"1px solid #F3F4F6",borderRadius:10,overflow:"hidden"}}>
+          <div style={{display:"grid",gridTemplateColumns:"140px 1fr 110px 100px 120px 90px",padding:"8px 14px",background:"#F9FAFB",borderBottom:"1px solid #F3F4F6"}}>
+            {["เลขที่เอกสาร","ชื่อเรื่อง","หมวดหมู่","สถานะ","ผู้สร้าง","วันที่"].map((h,i)=>(
+              <div key={i} style={{fontSize:11,fontWeight:600,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:.4}}>{h}</div>
+            ))}
+          </div>
+          {sorted.map(m=>{
+            const creator=users.find(u=>u.id===m.createdBy)||{};
+            const sc=STATUS_COLOR[m.status]||STATUS_COLOR.draft;
+            const fmtS=s=>!s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"short",year:"2-digit"});
+            return (
+              <div key={m.id} onClick={()=>onOpen(m.id)}
+                style={{display:"grid",gridTemplateColumns:"140px 1fr 110px 100px 120px 90px",padding:"9px 14px",borderBottom:"1px solid #F9FAFB",cursor:"pointer",transition:"background .1s",alignItems:"center"}}
+                onMouseEnter={e=>e.currentTarget.style.background="#F9FAFB"}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <div style={{fontSize:11,fontFamily:"monospace",color:"#2563EB",fontWeight:500}}>
+                  {m.docNo||<span style={{color:"#D1D5DB"}}>—</span>}
+                </div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:500,color:"#111",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:8}}>{m.title}</div>
+                  {m.attachments?.length>0&&<span style={{fontSize:10,color:"#9CA3AF"}}>📎 {m.attachments.length}</span>}
+                </div>
+                <div style={{fontSize:11,color:"#6B7280"}}>{m.category}</div>
+                <div><span style={{background:sc.bg,color:sc.text,border:`1px solid ${sc.border}`,borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:500,whiteSpace:"nowrap"}}>{STATUS_LABEL[m.status]||m.status}</span></div>
+                <div style={{fontSize:12,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{creator.name||"-"}</div>
+                <div style={{fontSize:11,color:"#9CA3AF",whiteSpace:"nowrap"}}>{fmtS(m.createdAt)}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {/* Legacy card view toggle — keep MemoRow for myMemos */}
     </div>
   );
 }
@@ -1038,6 +1162,129 @@ function WorkflowLevelBuilder({ levels, setLevels, users, curUser }) {
   );
 }
 
+// ── RichEditor — paste Excel table + insert image + auto page break ──────────
+function RichEditor({ value, onChange }) {
+  const editorRef  = useRef();
+  const imageRef   = useRef();
+  const [showTable, setShowTable] = useState(false);
+  const [rows, setRows]   = useState(3);
+  const [cols, setCols]   = useState(4);
+
+  // Sync plain-text value to contentEditable display
+  useEffect(() => {
+    if (!editorRef.current) return;
+    // Only update DOM if content differs (avoid cursor jump)
+    if (editorRef.current.innerText !== value) {
+      editorRef.current.innerText = value || "";
+    }
+  }, []);
+
+  const handleInput = () => {
+    if (editorRef.current) onChange(editorRef.current.innerText || "");
+  };
+
+  // Paste handler: convert HTML table (from Excel) to markdown-style text
+  const handlePaste = e => {
+    e.preventDefault();
+    const html  = e.clipboardData.getData("text/html");
+    const plain = e.clipboardData.getData("text/plain");
+    if (html && html.includes("<table")) {
+      // Parse table → text grid
+      const tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      const rows = tmp.querySelectorAll("tr");
+      const lines = [];
+      rows.forEach(tr => {
+        const cells = [...tr.querySelectorAll("td,th")].map(c => c.innerText.trim().replace(/
+/g," "));
+        lines.push(cells.join("	"));
+      });
+      const txt = lines.join("
+");
+      document.execCommand("insertText", false, txt);
+    } else {
+      document.execCommand("insertText", false, plain);
+    }
+    onChange(editorRef.current.innerText || "");
+  };
+
+  // Insert image as base64 placeholder note
+  const handleImageFile = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = ev => {
+      const tag = `[รูปภาพ:${f.name}]`;
+      document.execCommand("insertText", false, tag);
+      onChange(editorRef.current.innerText || "");
+    };
+    r.readAsDataURL(f); e.target.value = "";
+  };
+
+  // Insert blank table template
+  const insertTable = () => {
+    const header = Array.from({length:cols},(_,i)=>`คอลัมน์ ${i+1}`).join("	");
+    const dataRows = Array.from({length:rows},()=>Array(cols).fill("-").join("	")).join("
+");
+    document.execCommand("insertText", false, "
+"+header+"
+"+dataRows+"
+");
+    onChange(editorRef.current.innerText || "");
+    setShowTable(false);
+  };
+
+  return (
+    <div style={{border:"1px solid #E5E7EB",borderRadius:8,overflow:"hidden"}}>
+      {/* Toolbar */}
+      <div style={{display:"flex",gap:6,padding:"6px 10px",background:"#F9FAFB",borderBottom:"1px solid #E5E7EB",flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:11,color:"#9CA3AF",marginRight:4}}>เครื่องมือ:</span>
+        <button type="button" onClick={()=>imageRef.current?.click()}
+          style={{padding:"3px 9px",fontSize:11,borderRadius:5,background:"#fff",border:"1px solid #E5E7EB",cursor:"pointer",color:"#374151"}}>
+          🖼 แทรกรูปภาพ
+        </button>
+        <input ref={imageRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleImageFile}/>
+        <div style={{position:"relative"}}>
+          <button type="button" onClick={()=>setShowTable(s=>!s)}
+            style={{padding:"3px 9px",fontSize:11,borderRadius:5,background:"#fff",border:"1px solid #E5E7EB",cursor:"pointer",color:"#374151"}}>
+            📊 แทรกตาราง
+          </button>
+          {showTable && (
+            <div style={{position:"absolute",top:"100%",left:0,zIndex:50,background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,padding:12,boxShadow:"0 4px 16px rgba(0,0,0,.12)",whiteSpace:"nowrap"}}>
+              <div style={{fontSize:11,color:"#6B7280",marginBottom:6}}>กำหนดขนาดตาราง</div>
+              <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+                <span style={{fontSize:11}}>แถว</span>
+                <input type="number" value={rows} min={1} max={20} onChange={e=>setRows(+e.target.value)}
+                  style={{width:48,padding:"3px 6px",border:"1px solid #E5E7EB",borderRadius:4,fontSize:12}}/>
+                <span style={{fontSize:11}}>คอลัมน์</span>
+                <input type="number" value={cols} min={1} max={10} onChange={e=>setCols(+e.target.value)}
+                  style={{width:48,padding:"3px 6px",border:"1px solid #E5E7EB",borderRadius:4,fontSize:12}}/>
+              </div>
+              <button type="button" onClick={insertTable}
+                style={{width:"100%",padding:"5px",background:"#2563EB",color:"#fff",border:"none",borderRadius:5,fontSize:11,cursor:"pointer"}}>
+                แทรก
+              </button>
+            </div>
+          )}
+        </div>
+        <span style={{fontSize:10,color:"#9CA3AF",marginLeft:"auto"}}>💡 วาง (Ctrl+V) จาก Excel ได้โดยตรง</span>
+      </div>
+      {/* Editor area */}
+      <div ref={editorRef}
+        contentEditable suppressContentEditableWarning
+        onInput={handleInput} onPaste={handlePaste}
+        style={{
+          minHeight:180, padding:"10px 12px",
+          fontSize:13, lineHeight:1.8, fontFamily:"inherit",
+          outline:"none", whiteSpace:"pre-wrap", wordBreak:"break-word",
+          color:"#111", background:"#fff",
+        }}
+        data-placeholder="กรอกเนื้อหา... (วางตารางจาก Excel ได้โดยตรง)"
+      />
+      <style>{`.rich-editor[data-placeholder]:empty:before{content:attr(data-placeholder);color:#9CA3AF;pointer-events:none;}`}</style>
+    </div>
+  );
+}
+
 function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSubmit, onCancel, isRecall, onOpenSigZones }) {
   const fileRef      = useRef();
   const memoFileRef  = useRef();
@@ -1104,7 +1351,7 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, onSub
 
             {memoMode==="type" ? (
               <Field label="เนื้อหา">
-                <textarea value={editMemo.content||""} onChange={e=>update("content",e.target.value)} rows={8} placeholder="กรอกเนื้อหา..." style={{...IS,resize:"vertical",lineHeight:1.7,fontFamily:"inherit"}}/>
+                <RichEditor value={editMemo.content||""} onChange={v=>update("content",v)}/>
               </Field>
             ) : (
               <div>
@@ -1542,7 +1789,7 @@ class ErrorBoundary extends React.Component {
 function injectPrintCss(){
   if(document.getElementById("ememo-print-css"))return;
   const s=document.createElement("style");s.id="ememo-print-css";
-  s.textContent=`@media print{body>*{display:none!important;}#ememo-print-root{display:block!important;}}#ememo-print-root{display:none;font-family:'Noto Sans Thai','Sarabun',sans-serif;}`;
+  s.textContent=`@media print{body>*{display:none!important;}#ememo-print-root{display:block!important;}#ememo-print-root table{page-break-inside:avoid;}#ememo-print-root .page-break{page-break-before:always;}}#ememo-print-root{display:none;font-family:'Noto Sans Thai','Sarabun',sans-serif;}`;
   document.head.appendChild(s);
 }
 
@@ -1721,6 +1968,24 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
                 <div style={{height:32,borderBottom:"1px solid #333",margin:"4px 0"}}/>
               </div>
             ))}
+            {/* If uploaded file (image), show as preview doc */}
+            {memo.uploadedFile && (memo.uploadedFile.type==="png"||memo.uploadedFile.type==="jpg"||memo.uploadedFile.type==="jpeg") ? (
+              <div>
+                <img src={memo.uploadedFile.data} alt="uploaded"
+                  style={{maxWidth:"100%",display:"block",margin:"0 auto 12px"}}/>
+                <div style={{borderTop:"1px solid #E5E7EB",paddingTop:8,marginBottom:12,fontSize:11,color:"#6B7280",textAlign:"center"}}>
+                  📄 {memo.uploadedFile.name} — ลากจุด ✍ เพื่อวางลายเซ็น
+                </div>
+                {memo.content&&<div style={{fontSize:12,color:"#374151",marginBottom:12,whiteSpace:"pre-wrap"}}>หมายเหตุ: {memo.content}</div>}
+              </div>
+            ) : memo.uploadedFile && memo.uploadedFile.type==="pdf" ? (
+              <div>
+                <iframe src={memo.uploadedFile.data} title="pdf-preview"
+                  style={{width:"100%",height:600,border:"none",display:"block",marginBottom:8}}/>
+                <div style={{fontSize:11,color:"#6B7280",textAlign:"center",marginBottom:12}}>📄 {memo.uploadedFile.name}</div>
+                {memo.content&&<div style={{fontSize:12,color:"#374151",marginBottom:12,whiteSpace:"pre-wrap"}}>หมายเหตุ: {memo.content}</div>}
+              </div>
+            ) : (
             <div style={{textAlign:"center",borderBottom:`2px solid ${GOLD}`,paddingBottom:12,marginBottom:20}}>
               <img
                 src="https://img1.pic.in.th/images/logo-tss-03.png"
@@ -1732,7 +1997,8 @@ function MemoPDFPreview({ memo, users, onSaveZones, onClose }) {
               <div style={{fontSize:20,fontWeight:700,marginTop:6}}>บันทึกข้อความ (Memo)</div>
               {memo.docNo&&<div style={{fontSize:11,color:"#6B7280",marginTop:3}}>เลขที่ {memo.docNo}</div>}
             </div>
-            <table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:12}}><tbody>
+            )} {/* end uploadedFile ternary */}
+            {!memo.uploadedFile && <table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:12}}><tbody>
               <tr><td style={{width:100,color:"#6B7280",paddingBottom:5}}>เรื่อง:</td><td style={{fontWeight:600,paddingBottom:5}}>{memo.title||<span style={{color:"#ccc"}}>ยังไม่ได้กรอก</span>}</td><td style={{width:80,color:"#6B7280",paddingBottom:5,textAlign:"right"}}>หมวดหมู่:</td><td style={{paddingBottom:5,textAlign:"right"}}>{memo.category||"-"}</td></tr>
               <tr>
                 <td style={{color:"#6B7280"}}>ผู้สร้าง:</td>

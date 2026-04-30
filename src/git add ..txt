@@ -3,7 +3,7 @@ cd C:\Users\TSS\OneDrive\เดสก์ท็อป\ememo-firebase
 npm run dev
 
 git add .
-git commit -m "upload logo in memo"
+git commit -m "feat: เพิ่ม upload memo"
 git push origin main
 
 git add src/App.jsx vite.config.js
