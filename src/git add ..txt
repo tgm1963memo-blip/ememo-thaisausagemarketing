@@ -6,8 +6,8 @@ git add .
 git commit -m "Replace handlePrint, fix docNo display  and create table"
 git push origin main
 
-git add src/App.jsx vite.config.js
-git commit -m "fix: update App and vite config"
+git add .
+git commit -m "fix: email and login reset password"
 git push origin main
 
 git add .
