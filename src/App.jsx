@@ -1162,6 +1162,13 @@ function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRec
   const [fDateFrom, setFDateFrom] = useState("");
   const [fDateTo,   setFDateTo]   = useState("");
   const [exporting, setExporting] = useState(false);
+  const [sortKey,   setSortKey]   = useState("createdAt");
+  const [sortDir,   setSortDir]   = useState("desc"); // "asc" | "desc"
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d==="asc"?"desc":"asc");
+    else { setSortKey(key); setSortDir("desc"); }
+  };
 
   const filtered = memoList.filter(m => {
     if (fStatus   && m.status   !== fStatus)   return false;
@@ -1170,8 +1177,36 @@ function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRec
     if (fDateTo   && m.createdAt > fDateTo+"T23:59:59") return false;
     return true;
   });
-  const sorted = [...filtered].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+
+  const sorted = [...filtered].sort((a, b) => {
+    let av, bv;
+    if (sortKey === "createdAt") { av = a.createdAt||""; bv = b.createdAt||""; }
+    else if (sortKey === "title")    { av = (a.title||"").toLowerCase(); bv = (b.title||"").toLowerCase(); }
+    else if (sortKey === "status")   { av = a.status||""; bv = b.status||""; }
+    else if (sortKey === "category") { av = a.category||""; bv = b.category||""; }
+    else if (sortKey === "creator")  { av = (users.find(u=>u.id===a.createdBy)||{}).name||""; bv = (users.find(u=>u.id===b.createdBy)||{}).name||""; av=av.toLowerCase(); bv=bv.toLowerCase(); }
+    else if (sortKey === "docNo")    { av = a.docNo||""; bv = b.docNo||""; }
+    else { av = ""; bv = ""; }
+    if (av < bv) return sortDir==="asc" ? -1 : 1;
+    if (av > bv) return sortDir==="asc" ? 1 : -1;
+    return 0;
+  });
+
   const hasFilter = fStatus||fCategory||fDateFrom||fDateTo;
+
+  const SortHeader = ({ label, col, style={} }) => {
+    const active = sortKey === col;
+    return (
+      <div onClick={()=>toggleSort(col)}
+        style={{fontSize:11,fontWeight:600,color:active?"#111":"#9CA3AF",textTransform:"uppercase",letterSpacing:.4,
+          cursor:"pointer",userSelect:"none",display:"flex",alignItems:"center",gap:3,...style}}>
+        {label}
+        <span style={{fontSize:10,color:active?GOLD:"#D1D5DB",lineHeight:1}}>
+          {active ? (sortDir==="asc"?"▲":"▼") : "⇅"}
+        </span>
+      </div>
+    );
+  };
 
   const handleExport = async () => {
     setExporting(true);
@@ -1190,7 +1225,6 @@ function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRec
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          {/* Filters */}
           <select value={fStatus} onChange={e=>setFStatus(e.target.value)}
             style={{padding:"6px 8px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,color:"#374151",background:"#fff"}}>
             <option value="">สถานะทั้งหมด</option>
@@ -1216,13 +1250,16 @@ function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRec
         </div>
       </div>
 
-      {/* Table view */}
       {sorted.length===0 ? <Empty msg="ไม่พบ Memo"/> : (
         <div style={{background:"#fff",border:"1px solid #F3F4F6",borderRadius:10,overflow:"hidden"}}>
-          <div style={{display:"grid",gridTemplateColumns:"140px 1fr 110px 100px 120px 90px",padding:"8px 14px",background:"#F9FAFB",borderBottom:"1px solid #F3F4F6"}}>
-            {["เลขที่เอกสาร","ชื่อเรื่อง","หมวดหมู่","สถานะ","ผู้สร้าง","วันที่"].map((h,i)=>(
-              <div key={i} style={{fontSize:11,fontWeight:600,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:.4}}>{h}</div>
-            ))}
+          {/* Sortable header */}
+          <div style={{display:"grid",gridTemplateColumns:"140px 1fr 110px 100px 120px 90px",padding:"9px 14px",background:"#F9FAFB",borderBottom:"1px solid #F3F4F6"}}>
+            <SortHeader label="เลขที่เอกสาร" col="docNo"/>
+            <SortHeader label="ชื่อเรื่อง"   col="title"/>
+            <SortHeader label="หมวดหมู่"     col="category"/>
+            <SortHeader label="สถานะ"        col="status"/>
+            <SortHeader label="ผู้สร้าง"     col="creator"/>
+            <SortHeader label="วันที่"       col="createdAt"/>
           </div>
           {sorted.map(m=>{
             const creator=users.find(u=>u.id===m.createdBy)||{};
@@ -1249,7 +1286,6 @@ function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRec
           })}
         </div>
       )}
-      {/* Legacy card view toggle — keep MemoRow for myMemos */}
     </div>
   );
 }
@@ -1950,17 +1986,23 @@ function UsersMgmt({ users, curUser, showToast }) {
         {["superadmin","admin","user"].map(r=>{const c=ROLE_CONFIG[r];const n=users.filter(u=>u.role===r&&u.active).length;return <div key={r} style={{background:c.bg,border:`1px solid ${c.border}`,borderRadius:8,padding:"10px 14px"}}><div style={{fontSize:11,color:c.text,fontWeight:600}}>{c.label}</div><div style={{fontSize:22,fontWeight:700,color:c.text,marginTop:2}}>{n}</div></div>;})}
       </div>
       <div style={{background:"#fff",border:"1px solid #F3F4F6",borderRadius:10,overflow:"hidden"}}>
-        <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr 1fr 1fr auto",padding:"8px 16px",borderBottom:"1px solid #F3F4F6",background:"#F9FAFB"}}>{["ชื่อ","อีเมล์","แผนก","สิทธิ์","การมองเห็น","สถานะ",""].map((h,i)=><div key={i} style={{fontSize:11,fontWeight:600,color:"#9CA3AF"}}>{h}</div>)}</div>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr 1fr 1fr auto",padding:"8px 16px",borderBottom:"1px solid #F3F4F6",background:"#F9FAFB"}}>
+          {["ชื่อ","อีเมล์","แผนก","สิทธิ์","การมองเห็น","สถานะ",""].map((h,i)=><div key={i} style={{fontSize:11,fontWeight:600,color:"#9CA3AF"}}>{h}</div>)}
+        </div>
         {users.map(u=>{
-          const scopeLabel = u.viewScope==="all"?"👁 ทั้งหมด":u.viewScope==="dept"?`📁 แผนก${u.dept?"("+u.dept+")":""}`:u.role==="superadmin"||u.role==="admin"?"👁 ทั้งหมด":"🔒 ตัวเอง";
-          const scopeColor = u.viewScope==="all"||u.role==="superadmin"||u.role==="admin"?"#1E40AF":u.viewScope==="dept"?"#7C3AED":"#6B7280";
+          const scope = u.viewScope||"dept";
+          const scopeInfo = scope==="all"||u.role==="superadmin"||u.role==="admin"
+            ? {l:"👁 ทั้งหมด",     c:"#1E40AF", bg:"#EFF6FF"}
+            : scope==="own"
+            ? {l:"🔒 ตัวเอง",     c:"#6B7280", bg:"#F9FAFB"}
+            : {l:`📁 ${u.dept||"แผนก"}`, c:"#7C3AED", bg:"#F5F3FF"};
           return (
           <div key={u.id} style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr 1fr 1fr auto",padding:"10px 16px",borderBottom:"1px solid #F3F4F6",alignItems:"center",opacity:u.active?1:.45}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}><Avatar userId={u.id} users={users} size={26}/><span style={{fontSize:12,fontWeight:u.id===curUser.id?600:400,color:"#374151"}}>{u.name}{u.id===curUser.id&&<span style={{fontSize:10,color:GOLD,marginLeft:4}}>(คุณ)</span>}</span></div>
             <div style={{fontSize:12,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.email}</div>
             <div style={{fontSize:12,color:"#374151"}}>{u.dept||"-"}</div>
             <div><RoleBadge role={u.role}/></div>
-            <div style={{fontSize:10,color:scopeColor,fontWeight:500}}>{scopeLabel}</div>
+            <div><span style={{fontSize:10,fontWeight:500,color:scopeInfo.c,background:scopeInfo.bg,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap"}}>{scopeInfo.l}</span></div>
             <div><span style={{fontSize:11,fontWeight:500,color:u.active?"#065F46":"#991B1B",background:u.active?"#ECFDF5":"#FFF1F1",border:`1px solid ${u.active?"#A7F3D0":"#FECACA"}`,borderRadius:4,padding:"2px 7px"}}>{u.active?"ใช้งาน":"ระงับ"}</span></div>
             <div style={{display:"flex",gap:4}}>
               <button onClick={()=>setEditing({...u})} style={BTN_GRAY}>แก้ไข</button>
@@ -1989,16 +2031,16 @@ function UsersMgmt({ users, curUser, showToast }) {
             <Field label="สถานะ"><select value={editing.active?"1":"0"} onChange={e=>setEditing(p=>({...p,active:e.target.value==="1"}))} style={IS}><option value="1">ใช้งาน</option><option value="0">ระงับ</option></select></Field>
             <div style={{gridColumn:"1/-1"}}>
               <Field label="การมองเห็น Memo">
-                <select value={editing.viewScope||"own"} onChange={e=>setEditing(p=>({...p,viewScope:e.target.value}))} style={IS}>
-                  <option value="own">เฉพาะ Memo ของตัวเองและที่ได้รับมอบหมาย</option>
-                  <option value="dept">เห็นของแผนกตัวเองทั้งหมด</option>
-                  <option value="all">เห็นทั้งหมด (เหมือน Admin)</option>
+                <select value={editing.viewScope||"dept"} onChange={e=>setEditing(p=>({...p,viewScope:e.target.value}))} style={IS}>
+                  <option value="dept">📁 เห็นของแผนกตัวเองทั้งหมด (default)</option>
+                  <option value="own">🔒 เฉพาะของตัวเองและที่ได้รับมอบหมาย</option>
+                  <option value="all">👁 เห็นทั้งหมด (เหมือน Admin)</option>
                 </select>
               </Field>
-              <div style={{fontSize:10,color:"#9CA3AF",marginTop:3,lineHeight:1.5}}>
-                {editing.viewScope==="dept"
-                  ? `📁 เห็น Memo ทุกอันในแผนก "${editing.dept||"(ยังไม่ได้ระบุแผนก)"}" และ Memo ของตัวเอง`
-                  : editing.viewScope==="all"
+              <div style={{fontSize:10,color:"#9CA3AF",marginTop:3,lineHeight:1.6,padding:"4px 8px",background:"#F9FAFB",borderRadius:4}}>
+                {(editing.viewScope||"dept")==="dept"
+                  ? `📁 เห็น Memo ทุกอันในแผนก "${editing.dept||"(ยังไม่ได้ระบุแผนก)"}" + ของตัวเอง + ที่ได้รับมอบหมาย`
+                  : (editing.viewScope)==="all"
                   ? "👁 เห็น Memo ทั้งหมดในระบบ (ควรใช้กับ Admin ขึ้นไป)"
                   : "🔒 เห็นเฉพาะ Memo ที่ตัวเองสร้าง และที่ได้รับมอบหมายให้อนุมัติ"}
               </div>
@@ -2557,8 +2599,10 @@ export default function EMemo() {
   // superadmin: เห็นทุก Memo / admin: แผนกตัวเอง + assigned / user: ของตัวเอง + assigned
   const visibleMemos = (() => {
     if (curUser.role === "superadmin") return memoList;
-    // viewScope="all" หรือ role=admin → เห็นทั้งหมด
+    // viewScope="all" หรือ admin → เห็นทั้งหมด
     if (curUser.viewScope === "all" || curUser.role === "admin") return memoList;
+    // default คือ "dept" (เห็นของแผนกตัวเอง)
+    const scope = curUser.viewScope || "dept";
     return memoList.filter(m => {
       // เห็น Memo ตัวเองเสมอ
       if (m.createdBy === curUser.id) return true;
@@ -2566,8 +2610,8 @@ export default function EMemo() {
       const isApprover = (m.workflowLevels||[]).flatMap(lv=>lv.approvers||[])
         .some(ap=>(ap.userId&&ap.userId===curUser.id)||(ap.email&&ap.email===curUser.email));
       if (isApprover) return true;
-      // viewScope="dept" → เห็น Memo ของแผนกตัวเอง
-      if (curUser.viewScope === "dept" && curUser.dept) {
+      // scope="dept" → เห็น Memo ทั้งแผนก
+      if (scope === "dept" && curUser.dept) {
         const creator = users.find(u=>u.id===m.createdBy);
         const memoDept = m.dept || creator?.dept;
         if (memoDept && memoDept === curUser.dept) return true;
