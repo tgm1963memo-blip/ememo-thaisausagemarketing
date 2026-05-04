@@ -1950,13 +1950,17 @@ function UsersMgmt({ users, curUser, showToast }) {
         {["superadmin","admin","user"].map(r=>{const c=ROLE_CONFIG[r];const n=users.filter(u=>u.role===r&&u.active).length;return <div key={r} style={{background:c.bg,border:`1px solid ${c.border}`,borderRadius:8,padding:"10px 14px"}}><div style={{fontSize:11,color:c.text,fontWeight:600}}>{c.label}</div><div style={{fontSize:22,fontWeight:700,color:c.text,marginTop:2}}>{n}</div></div>;})}
       </div>
       <div style={{background:"#fff",border:"1px solid #F3F4F6",borderRadius:10,overflow:"hidden"}}>
-        <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr 1fr auto",padding:"8px 16px",borderBottom:"1px solid #F3F4F6",background:"#F9FAFB"}}>{["ชื่อ","อีเมล์","แผนก","สิทธิ์","สถานะ",""].map((h,i)=><div key={i} style={{fontSize:11,fontWeight:600,color:"#9CA3AF"}}>{h}</div>)}</div>
-        {users.map(u=>(
-          <div key={u.id} style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr 1fr auto",padding:"10px 16px",borderBottom:"1px solid #F3F4F6",alignItems:"center",opacity:u.active?1:.45}}>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr 1fr 1fr auto",padding:"8px 16px",borderBottom:"1px solid #F3F4F6",background:"#F9FAFB"}}>{["ชื่อ","อีเมล์","แผนก","สิทธิ์","การมองเห็น","สถานะ",""].map((h,i)=><div key={i} style={{fontSize:11,fontWeight:600,color:"#9CA3AF"}}>{h}</div>)}</div>
+        {users.map(u=>{
+          const scopeLabel = u.viewScope==="all"?"👁 ทั้งหมด":u.viewScope==="dept"?`📁 แผนก${u.dept?"("+u.dept+")":""}`:u.role==="superadmin"||u.role==="admin"?"👁 ทั้งหมด":"🔒 ตัวเอง";
+          const scopeColor = u.viewScope==="all"||u.role==="superadmin"||u.role==="admin"?"#1E40AF":u.viewScope==="dept"?"#7C3AED":"#6B7280";
+          return (
+          <div key={u.id} style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr 1fr 1fr auto",padding:"10px 16px",borderBottom:"1px solid #F3F4F6",alignItems:"center",opacity:u.active?1:.45}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}><Avatar userId={u.id} users={users} size={26}/><span style={{fontSize:12,fontWeight:u.id===curUser.id?600:400,color:"#374151"}}>{u.name}{u.id===curUser.id&&<span style={{fontSize:10,color:GOLD,marginLeft:4}}>(คุณ)</span>}</span></div>
             <div style={{fontSize:12,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.email}</div>
             <div style={{fontSize:12,color:"#374151"}}>{u.dept||"-"}</div>
             <div><RoleBadge role={u.role}/></div>
+            <div style={{fontSize:10,color:scopeColor,fontWeight:500}}>{scopeLabel}</div>
             <div><span style={{fontSize:11,fontWeight:500,color:u.active?"#065F46":"#991B1B",background:u.active?"#ECFDF5":"#FFF1F1",border:`1px solid ${u.active?"#A7F3D0":"#FECACA"}`,borderRadius:4,padding:"2px 7px"}}>{u.active?"ใช้งาน":"ระงับ"}</span></div>
             <div style={{display:"flex",gap:4}}>
               <button onClick={()=>setEditing({...u})} style={BTN_GRAY}>แก้ไข</button>
@@ -1965,7 +1969,8 @@ function UsersMgmt({ users, curUser, showToast }) {
               {u.id!==curUser.id&&<button onClick={()=>setDelConfirm(u)} style={{...BTN_X,color:"#DC2626",padding:"3px 6px",border:"1px solid #FECACA",borderRadius:5,background:"#FFF1F1"}}>ลบ</button>}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
       {editing&&<div style={{position:"fixed",inset:0,zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.5)"}}>
         <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:24,width:420,boxShadow:"0 20px 60px rgba(0,0,0,.2)"}}>
@@ -1974,7 +1979,6 @@ function UsersMgmt({ users, curUser, showToast }) {
             <Field label="ชื่อ-สกุล *"><input value={editing.name} onChange={e=>setEditing(p=>({...p,name:e.target.value}))} style={IS}/></Field>
             <Field label="แผนก"><input value={editing.dept||""} onChange={e=>setEditing(p=>({...p,dept:e.target.value}))} style={IS}/></Field>
             <div style={{gridColumn:"1/-1"}}><Field label="อีเมล์ *"><input value={editing.email} onChange={e=>setEditing(p=>({...p,email:e.target.value}))} style={IS}/></Field></div>
-            {/* [4] Role with detailed permissions */}
             <Field label="สิทธิ์">
               <select value={editing.role} onChange={e=>setEditing(p=>({...p,role:e.target.value}))} style={IS}>
                 <option value="superadmin">Super Admin</option>
@@ -1983,6 +1987,22 @@ function UsersMgmt({ users, curUser, showToast }) {
               </select>
             </Field>
             <Field label="สถานะ"><select value={editing.active?"1":"0"} onChange={e=>setEditing(p=>({...p,active:e.target.value==="1"}))} style={IS}><option value="1">ใช้งาน</option><option value="0">ระงับ</option></select></Field>
+            <div style={{gridColumn:"1/-1"}}>
+              <Field label="การมองเห็น Memo">
+                <select value={editing.viewScope||"own"} onChange={e=>setEditing(p=>({...p,viewScope:e.target.value}))} style={IS}>
+                  <option value="own">เฉพาะ Memo ของตัวเองและที่ได้รับมอบหมาย</option>
+                  <option value="dept">เห็นของแผนกตัวเองทั้งหมด</option>
+                  <option value="all">เห็นทั้งหมด (เหมือน Admin)</option>
+                </select>
+              </Field>
+              <div style={{fontSize:10,color:"#9CA3AF",marginTop:3,lineHeight:1.5}}>
+                {editing.viewScope==="dept"
+                  ? `📁 เห็น Memo ทุกอันในแผนก "${editing.dept||"(ยังไม่ได้ระบุแผนก)"}" และ Memo ของตัวเอง`
+                  : editing.viewScope==="all"
+                  ? "👁 เห็น Memo ทั้งหมดในระบบ (ควรใช้กับ Admin ขึ้นไป)"
+                  : "🔒 เห็นเฉพาะ Memo ที่ตัวเองสร้าง และที่ได้รับมอบหมายให้อนุมัติ"}
+              </div>
+            </div>
           </div>
           <div style={{padding:"8px 12px",background:"#F9FAFB",borderRadius:6,fontSize:11,color:"#6B7280",marginBottom:14,lineHeight:1.6}}>
             <strong>สิทธิ์:</strong> {RDESC[editing.role]}
@@ -2520,15 +2540,10 @@ export default function EMemo() {
   const docCounters   = data.docCounters  ||{};
   const routeTemplates= Array.isArray(data.routeTemplates) ? data.routeTemplates : Object.values(data.routeTemplates||{});
 
-  const SUPERADMIN_EMAILS = ["thitiwat.tan@tgm.co.th"];
-
-  const _curUser = users.find(u=>u.email===authUser.email) || {
+  const curUser = users.find(u=>u.email===authUser.email) || {
     id:authUser.uid, name:authUser.displayName||authUser.email,
     role:"user", dept:"-", email:authUser.email, active:true
   };
-  const curUser = SUPERADMIN_EMAILS.includes(authUser.email)
-    ? { ..._curUser, role:"superadmin" }
-    : _curUser;
 
   // [3][7] inbox: find memos where curUser is an approver in the active level
   const inbox = memoList.filter(m=>{
@@ -2542,13 +2557,18 @@ export default function EMemo() {
   // superadmin: เห็นทุก Memo / admin: แผนกตัวเอง + assigned / user: ของตัวเอง + assigned
   const visibleMemos = (() => {
     if (curUser.role === "superadmin") return memoList;
+    // viewScope="all" หรือ role=admin → เห็นทั้งหมด
+    if (curUser.viewScope === "all" || curUser.role === "admin") return memoList;
     return memoList.filter(m => {
+      // เห็น Memo ตัวเองเสมอ
       if (m.createdBy === curUser.id) return true;
+      // เห็น Memo ที่ได้รับมอบหมายให้อนุมัติเสมอ
       const isApprover = (m.workflowLevels||[]).flatMap(lv=>lv.approvers||[])
         .some(ap=>(ap.userId&&ap.userId===curUser.id)||(ap.email&&ap.email===curUser.email));
       if (isApprover) return true;
-      if (curUser.role === "admin" && curUser.dept) {
-        const creator = users.find(u=>u.id===memo.createdBy) || curUser || {};
+      // viewScope="dept" → เห็น Memo ของแผนกตัวเอง
+      if (curUser.viewScope === "dept" && curUser.dept) {
+        const creator = users.find(u=>u.id===m.createdBy);
         const memoDept = m.dept || creator?.dept;
         if (memoDept && memoDept === curUser.dept) return true;
       }

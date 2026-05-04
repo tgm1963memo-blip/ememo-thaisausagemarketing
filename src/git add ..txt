@@ -11,5 +11,5 @@ git commit -m "fix: email and login reset password"
 git push origin main
 
 git add .
-git commit -m "Add LOA"
+git commit -m "Add superadmin"
 git push origin main
