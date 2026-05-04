@@ -2520,10 +2520,15 @@ export default function EMemo() {
   const docCounters   = data.docCounters  ||{};
   const routeTemplates= Array.isArray(data.routeTemplates) ? data.routeTemplates : Object.values(data.routeTemplates||{});
 
-  const curUser = users.find(u=>u.email===authUser.email) || {
+  const SUPERADMIN_EMAILS = ["thitiwat.tan@tgm.co.th"];
+
+  const _curUser = users.find(u=>u.email===authUser.email) || {
     id:authUser.uid, name:authUser.displayName||authUser.email,
     role:"user", dept:"-", email:authUser.email, active:true
   };
+  const curUser = SUPERADMIN_EMAILS.includes(authUser.email)
+    ? { ..._curUser, role:"superadmin" }
+    : _curUser;
 
   // [3][7] inbox: find memos where curUser is an approver in the active level
   const inbox = memoList.filter(m=>{
