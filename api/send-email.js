@@ -3,11 +3,11 @@
 // รองรับ: HTML body, รูปภาพ inline (cid:), แนบไฟล์ base64
 //
 // ตั้งค่า Environment Variables ใน Vercel Dashboard:
-//   SMTP_HOST     = mail.yourcompany.com  (หรือ smtp.gmail.com)
+//   SMTP_HOST     = mail.tgm.co.th  (หรือ smtp.gmail.com)
 //   SMTP_PORT     = 587
-//   SMTP_USER     = noreply@thaisauces.co.th
-//   SMTP_PASS     = your_app_password
-//   SMTP_FROM     = "Thai Sausage Marketing" <noreply@thaisauces.co.th>
+//   SMTP_USER     = noreply.ememo@tgm.co.th
+//   SMTP_PASS     = TSStss2026
+//   SMTP_FROM     = "Thai Sausage Marketing" <noreply.ememo@tgm.co.th>
 
 import nodemailer from "nodemailer";
 
@@ -36,7 +36,7 @@ export default async function handler(req, res) {
   const smtpConfig = {
     host:   process.env.SMTP_HOST || "smtp.gmail.com",
     port:   parseInt(process.env.SMTP_PORT || "587"),
-    secure: process.env.SMTP_SECURE === "true", // true for 465, false for 587
+    secure: process.env.SMTP_SECURE === "false", // true for 465, false for 587
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,

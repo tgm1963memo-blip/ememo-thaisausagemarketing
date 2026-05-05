@@ -13,3 +13,9 @@ git push origin main
 git add .
 git commit -m "Add tgm mail"
 git push origin main
+
+$smtp = New-Object Net.Mail.SmtpClient("mail.tgm.co.th", 25)
+$smtp.EnableSsl = $true
+$smtp.Credentials = New-Object System.Net.NetworkCredential("noreply.ememo@tgm.co.th", "รหัสผ่านใหม่")
+$smtp.Send("noreply.ememo@tgm.co.th", "thitiwat.tan@tgm.co.th", "Test", "ทดสอบ")
+Write-Host "ส่งสำเร็จ"
