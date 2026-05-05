@@ -198,7 +198,7 @@ const newId    = (pfx="") => pfx+Date.now()+Math.random().toString(36).slice(2,5
 function printSystemPDF(memo, users) {
   const creator = users.find(u=>u.id===memo.createdBy)||{};
   const approvals = (memo.workflowLevels||[]).flatMap(lv=>lv.approvers||[]);
-  const fD = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
+  const fD = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"})+" "+new Date(s).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
   let root = document.getElementById("ememo-print-root");
   if(!root){ root=document.createElement("div"); root.id="ememo-print-root"; document.body.appendChild(root); }
   if(!document.getElementById("ememo-print-css")){
@@ -307,7 +307,7 @@ function printSystemPDF(memo, users) {
     html += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
     html += '<tr style="background:#F9FAFB;"><th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ผู้อนุมัติ</th>';
     html += '<th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:80px;">สถานะ</th>';
-    html += '<th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:100px;">วันที่</th>';
+    html += '<th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:140px;">วันที่ / เวลา</th>';
     html += '<th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ลายเซ็น / ความคิดเห็น</th></tr>';
     approvals.forEach(ap=>{
       const u=users.find(x=>x.id===ap.userId)||{};
@@ -2216,7 +2216,7 @@ function MemoPDFPreview({ memo, users, curUser, onSaveZones, onClose }) {
   const creator = users.find(u=>u.id===memo.createdBy) || curUser || {};
   const allUsers = users.filter(u=>u.active);
   const approvals = (memo.workflowLevels||[]).flatMap(lv=>lv.approvers||[]);
-  const fmtD = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
+  const fmtD = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"})+" "+new Date(s).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
 
   const addZone  = () => setZones(p=>[...p,{id:"sz"+Date.now(),label:`จุดลงนาม ${p.length+1}`,x:10+(p.length%3)*30,y:70+Math.floor(p.length/3)*15,assignedTo:"",signerName:""}]);
   const remZone  = i => setZones(p=>p.filter((_,j)=>j!==i));
@@ -2321,7 +2321,7 @@ function MemoPDFPreview({ memo, users, curUser, onSaveZones, onClose }) {
       html+='<div style="margin-top:24px;border-top:1px solid #E5E7EB;padding-top:14px;">';
       html+='<div style="font-size:11px;color:#6B7280;font-weight:600;margin-bottom:8px;">ขั้นตอนการอนุมัติ</div>';
       html+='<table style="width:100%;border-collapse:collapse;font-size:11px;">';
-      html+='<tr style="background:#F9FAFB;"><th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ผู้อนุมัติ</th><th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:80px;">สถานะ</th><th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:100px;">วันที่</th><th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ลายเซ็น / ความคิดเห็น</th></tr>';
+      html+='<tr style="background:#F9FAFB;"><th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ผู้อนุมัติ</th><th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:80px;">สถานะ</th><th style="text-align:center;padding:5px 8px;border:1px solid #E5E7EB;width:140px;">วันที่ / เวลา</th><th style="text-align:left;padding:5px 8px;border:1px solid #E5E7EB;">ลายเซ็น / ความคิดเห็น</th></tr>';
       approvals.forEach(ap=>{
         const u2=users.find(x=>x.id===ap.userId)||{};
         const sl=ap.status==="approved"?"✓ อนุมัติ":ap.status==="rejected"?"✗ ปฏิเสธ":"○ รอ";
