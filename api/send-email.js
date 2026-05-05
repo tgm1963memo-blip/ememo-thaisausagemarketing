@@ -33,17 +33,19 @@ export default async function handler(req, res) {
   }
 
   // ── SMTP config from env ──────────────────────────────────────────────────
-  const smtpConfig = {
-    host:   process.env.SMTP_HOST || "smtp.gmail.com",
-    port:   parseInt(process.env.SMTP_PORT || "587"),
-    secure: process.env.SMTP_SECURE === "false", // true for 465, false for 587
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-    tls: { rejectUnauthorized: false },
-  };
-
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT),
+  secure: process.env.SMTP_SECURE === 'true', // ถ้า Port 587 ค่านี้ต้องเป็น false
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+  tls: {
+    // สิ่งนี้สำคัญมากสำหรับ Mail Server ภายในบริษัท
+    rejectUnauthorized: false 
+  }
+});
   if (!smtpConfig.auth.user || !smtpConfig.auth.pass) {
     return res.status(500).json({
       error: "SMTP ยังไม่ได้ตั้งค่า — กรุณาเพิ่ม SMTP_HOST, SMTP_USER, SMTP_PASS ใน Vercel Environment Variables แล้ว Redeploy",
