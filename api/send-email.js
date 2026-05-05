@@ -36,7 +36,7 @@ export default async function handler(req, res) {
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT),
-  secure: process.env.SMTP_SECURE === 'true', // ถ้า Port 587 ค่านี้ต้องเป็น false
+  secure: process.env.SMTP_SECURE === 'false', // ถ้า Port 587 ค่านี้ต้องเป็น false
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
