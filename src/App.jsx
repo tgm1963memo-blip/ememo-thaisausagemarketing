@@ -26,15 +26,44 @@ async function createAuthUserREST(email) {
   return data; // { email, localId, ... }
 }
 
-async function sendResetEmailREST(email) {
-  const apiKey = auth.app.options.apiKey;
-  const res = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`,
-    { method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ requestType:"PASSWORD_RESET", email }) }
-  );
+// ── Email via SMTP บริษัท (Vercel API route) ─────────────────────────────────
+const API_BASE = typeof window !== "undefined"
+  ? (window.location.origin.includes("localhost") ? "http://localhost:3000" : "")
+  : "";
+
+async function sendResetEmailREST(email, name="", isNew=false) {
+  // ลองใช้ API route ของบริษัทก่อน (send-reset-email.js)
+  try {
+    const res = await fetch(`${API_BASE}/api/send-reset-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, name, isNew }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "ส่งไม่สำเร็จ");
+    return data;
+  } catch (err) {
+    // Fallback: ใช้ Firebase REST API (ส่งจาก noreply@firebase)
+    const apiKey = auth.app.options.apiKey;
+    const res2 = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`,
+      { method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ requestType:"PASSWORD_RESET", email }) }
+    );
+    const data2 = await res2.json();
+    if (data2.error) throw new Error(data2.error.message);
+    return data2;
+  }
+}
+
+async function sendMemoEmail({ to, subject, html, text, attachments }) {
+  const res = await fetch(`${API_BASE}/api/send-email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to, subject, html, text, attachments }),
+  });
   const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
+  if (!res.ok) throw new Error(data.error || "ส่งอีเมล์ไม่สำเร็จ");
   return data;
 }
 
@@ -116,38 +145,51 @@ async function assignDocNo(memo, users, docCounters) {
 const stripHtml = s => (s||"").replace(/<br\s*\/?>/gi,"\n").replace(/<[^>]+>/g,"").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").trim();
 
 async function sendApproverEmail(cfg, memo, level, users) {
-  if (!cfg.email?.enabled || !cfg.email?.serviceId) return;
-  const creator    = users.find(u => u.id === memo.createdBy) || {};
-  const modeLabel  = level.mode === "any" ? "ผู้ใดผู้หนึ่ง" : "ทุกคน";
-  const attList    = (memo.attachments||[]).map(a=>a.name).join(", ") || "-";
+  if (!cfg.email?.enabled) return;
+  const creator   = users.find(u => u.id === memo.createdBy) || {};
+  const modeLabel = level.mode === "any" ? "ผู้ใดผู้หนึ่ง" : "ทุกคน";
+  const attList   = (memo.attachments||[]).map(a=>a.name).join(", ") || "-";
+  const appUrl    = window.location.origin;
 
   for (const ap of level.approvers) {
-    const toEmail = ap.email || (users.find(u=>u.id===ap.userId)||{}).email;
+    const toEmail    = ap.email || (users.find(u=>u.id===ap.userId)||{}).email;
+    const toName     = ap.name  || toEmail;
     if (!toEmail) continue;
     try {
-      await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          service_id:  cfg.email.serviceId,
-          template_id: cfg.email.approverTemplateId || cfg.email.templateId,
-          user_id:     cfg.email.publicKey,
-          template_params: {
-            to_email:      toEmail,
-            approver_name: ap.name || toEmail,
-            memo_title:    memo.title,
-            memo_content:  stripHtml(memo.content).slice(0,300),
-            creator_name:  creator.name,
-            category:      memo.category,
-            memo_id:       memo.id,
-            level_num:     level.level,
-            mode_label:    modeLabel,
-            attachments:   attList,
-            company:       COMPANY,
-            app_url:       window.location.origin,
-          },
-        }),
+      const html = `
+        <div style="font-family:'Noto Sans Thai',Sarabun,sans-serif;max-width:560px;margin:0 auto;">
+          <div style="background:#1E3A5F;padding:20px 28px;border-radius:8px 8px 0 0;">
+            <div style="font-size:16px;font-weight:700;color:#fff;">${COMPANY}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:2px;">E-Memo System — แจ้งเตือนการอนุมัติ</div>
+          </div>
+          <div style="border:1px solid #E5E7EB;border-top:3px solid #D4AF37;padding:28px;border-radius:0 0 8px 8px;background:#fff;">
+            <p style="margin:0 0 8px;font-size:15px;font-weight:600;color:#111;">คุณ${toName} มีเอกสารรออนุมัติ</p>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;margin:12px 0;">
+              <tr><td style="color:#6B7280;padding:4px 0;width:100px;">ชื่อเรื่อง:</td><td style="font-weight:600;color:#111;">${memo.title}</td></tr>
+              <tr><td style="color:#6B7280;padding:4px 0;">หมวดหมู่:</td><td>${memo.category||"-"}</td></tr>
+              <tr><td style="color:#6B7280;padding:4px 0;">ผู้สร้าง:</td><td>${creator.name||"-"}</td></tr>
+              <tr><td style="color:#6B7280;padding:4px 0;">ลำดับ:</td><td>ขั้นที่ ${level.level||""} (${modeLabel}อนุมัติ)</td></tr>
+              ${attList!=="-"?`<tr><td style="color:#6B7280;padding:4px 0;">เอกสารแนบ:</td><td>${attList}</td></tr>`:""}
+            </table>
+            <div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:6px;padding:12px 16px;margin:12px 0;font-size:12px;color:#374151;max-height:120px;overflow:hidden;">
+              ${stripHtml(memo.content).slice(0,300)}${stripHtml(memo.content).length>300?"...":""}
+            </div>
+            <div style="text-align:center;margin:20px 0;">
+              <a href="${appUrl}" style="background:#D4AF37;color:#111;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">
+                เข้าสู่ระบบเพื่ออนุมัติ →
+              </a>
+            </div>
+            <div style="border-top:1px solid #F3F4F6;margin-top:20px;padding-top:12px;font-size:10px;color:#D1D5DB;text-align:center;">
+              ${COMPANY} — E-Memo System
+            </div>
+          </div>
+        </div>`;
+      await sendMemoEmail({
+        to: toEmail,
+        subject: `[E-Memo] รออนุมัติ: ${memo.title}`,
+        html,
       });
-    } catch {}
+    } catch(e) { console.warn("[sendApproverEmail]", toEmail, e.message); }
   }
 }
 
@@ -155,19 +197,48 @@ async function sendApprovedNotifications(cfg, memo, users) {
   const creator      = users.find(u => u.id === memo.createdBy) || {};
   const approvedDate = new Date().toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
   const summary      = stripHtml(memo.content||"").slice(0,200);
+  const appUrl       = window.location.origin;
 
-  if (cfg.email?.enabled && cfg.email?.serviceId && memo.notify?.emailList?.length) {
+  // ส่งอีเมล์ผ่าน SMTP บริษัท
+  if (cfg.email?.enabled && memo.notify?.emailList?.length) {
+    const html = `
+      <div style="font-family:'Noto Sans Thai',Sarabun,sans-serif;max-width:560px;margin:0 auto;">
+        <div style="background:#1E3A5F;padding:20px 28px;border-radius:8px 8px 0 0;">
+          <div style="font-size:16px;font-weight:700;color:#fff;">${COMPANY}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:2px;">E-Memo System — แจ้งผลการอนุมัติ</div>
+        </div>
+        <div style="border:1px solid #E5E7EB;border-top:3px solid #22C55E;padding:28px;border-radius:0 0 8px 8px;background:#fff;">
+          <p style="margin:0 0 4px;font-size:22px;">✅</p>
+          <p style="margin:0 0 12px;font-size:15px;font-weight:600;color:#111;">Memo ได้รับการอนุมัติครบแล้ว</p>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;margin:8px 0;">
+            <tr><td style="color:#6B7280;padding:4px 0;width:100px;">ชื่อเรื่อง:</td><td style="font-weight:600;color:#111;">${memo.title}</td></tr>
+            <tr><td style="color:#6B7280;padding:4px 0;">หมวดหมู่:</td><td>${memo.category||"-"}</td></tr>
+            <tr><td style="color:#6B7280;padding:4px 0;">ผู้สร้าง:</td><td>${creator.name||"-"}</td></tr>
+            <tr><td style="color:#6B7280;padding:4px 0;">วันที่อนุมัติ:</td><td>${approvedDate}</td></tr>
+            ${memo.docNo?`<tr><td style="color:#6B7280;padding:4px 0;">เลขที่เอกสาร:</td><td style="font-family:monospace;color:#1D4ED8;">${memo.docNo}</td></tr>`:""}
+          </table>
+          ${summary?`<div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:6px;padding:12px;margin:12px 0;font-size:12px;color:#374151;">${summary}${summary.length>=200?"...":""}</div>`:""}
+          <div style="text-align:center;margin:20px 0;">
+            <a href="${appUrl}" style="background:#D4AF37;color:#111;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">
+              ดูเอกสาร →
+            </a>
+          </div>
+          <div style="border-top:1px solid #F3F4F6;margin-top:20px;padding-top:12px;font-size:10px;color:#D1D5DB;text-align:center;">
+            ${COMPANY} — E-Memo System
+          </div>
+        </div>
+      </div>`;
     for (const toEmail of memo.notify.emailList) {
       try {
-        await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({ service_id:cfg.email.serviceId, template_id:cfg.email.templateId, user_id:cfg.email.publicKey,
-            template_params:{ to_email:toEmail, memo_title:memo.title, creator_name:creator.name,
-              approved_date:approvedDate, category:memo.category, memo_summary:summary, company:COMPANY }}),
+        await sendMemoEmail({
+          to: toEmail,
+          subject: `[E-Memo] ✅ อนุมัติแล้ว: ${memo.title}`,
+          html,
         });
-      } catch {}
+      } catch(e) { console.warn("[sendApprovedNotifications]", toEmail, e.message); }
     }
   }
+
   if (cfg.teams?.enabled && cfg.teams?.webhookUrl && memo.notify?.postToTeams) {
     try { await fetch(cfg.teams.webhookUrl,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({"@type":"MessageCard",themeColor:"D4AF37",summary:`✅ อนุมัติ: ${memo.title}`,
@@ -2076,7 +2147,7 @@ function UsersMgmt({ users, curUser, showToast }) {
 
 // Default notify config shape (used by SettingsView)
 const DEFAULT_NOTIFY = {
-  email:     { enabled:false, serviceId:"", templateId:"", approverTemplateId:"", publicKey:"" },
+  email:     { enabled:false },
   teams:     { enabled:false, webhookUrl:"" },
   powerauto: { enabled:false, webhookUrl:"" },
   line:      { enabled:false, channelAccessToken:"", groupId:"" },
@@ -2101,9 +2172,9 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
   };
 
   const CHANNELS = [
-    { id:"email",    icon:"✉",  label:"อีเมล์ (EmailJS)",             color:"#1E40AF",
-      fields:[{k:"serviceId",label:"Service ID",ph:"service_xxxxxxx"},{k:"templateId",label:"Template ID (แจ้งเมื่ออนุมัติ)",ph:"template_xxxxxxx"},{k:"approverTemplateId",label:"Template ID (แจ้งผู้อนุมัติ)",ph:"template_xxxxxxx"},{k:"publicKey",label:"Public Key",ph:"your_public_key"}],
-      guide:["สมัครที่ emailjs.com (ฟรี 200/เดือน)","สร้าง Email Service → Gmail/Outlook","สร้าง Template ใช้ตัวแปร {{memo_title}} {{creator_name}} {{to_email}}","คัดลอก Service ID / Template ID / Public Key มากรอก"] },
+    { id:"email", icon:"✉", label:"อีเมล์ (SMTP บริษัท)", color:"#1E40AF",
+      fields:[],
+      guide:["ส่งจาก noreply.ememo@tgm.co.th ผ่าน mail.tgm.co.th:465 โดยอัตโนมัติ","ตั้งค่าตัวแปรใน Vercel Dashboard → Settings → Environment Variables:","SMTP_HOST = mail.tgm.co.th  |  SMTP_PORT = 465","SMTP_USER = noreply.ememo@tgm.co.th  |  SMTP_PASS = (รหัสผ่าน)","SMTP_FROM = \"E-Memo TGM\" <noreply.ememo@tgm.co.th>","เปิด Toggle แล้ว Redeploy — ไม่ต้องตั้งค่าอะไรเพิ่มในหน้านี้"] },
     { id:"teams",    icon:"🔵", label:"Microsoft Teams Webhook",        color:"#464EB8",
       fields:[{k:"webhookUrl",label:"Webhook URL",ph:"https://your-org.webhook.office.com/..."}],
       guide:["Teams → Channel → ⋯ → Connectors → Incoming Webhook","ตั้งชื่อ E-Memo → Create → Copy URL"] },

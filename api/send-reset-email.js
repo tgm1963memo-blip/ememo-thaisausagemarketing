@@ -73,15 +73,15 @@ export default async function handler(req, res) {
       </div>`;
 
     const transporter = nodemailer.createTransport({
-      host:   process.env.SMTP_HOST || "smtp.gmail.com",
-      port:   parseInt(process.env.SMTP_PORT || "587"),
-      secure: process.env.SMTP_SECURE === "false",
+      host:   process.env.SMTP_HOST || "mail.tgm.co.th",
+      port:   parseInt(process.env.SMTP_PORT || "465"),
+      secure: true,   // Port 465 = SSL โดยตรง
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
       tls:    { rejectUnauthorized: false },
     });
 
     await transporter.sendMail({
-      from:    process.env.SMTP_FROM || process.env.SMTP_USER,
+      from:    process.env.SMTP_FROM || `"E-Memo TGM" <${process.env.SMTP_USER}>`,
       to:      email,
       subject: subjectText,
       html,
