@@ -2429,6 +2429,7 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
   const [teams,     setTeams]     = useState(()=>safe("teams"));
   const [powerauto, setPowerauto] = useState(()=>safe("powerauto"));
   const [line,      setLine]      = useState(()=>safe("line"));
+  const [smtp,      setSmtp]      = useState(()=>safe("smtp"));
 
   const cfgMap  = { smtp, email, teams, powerauto, line };
   const setMap  = { smtp:setSmtp, email:setEmail, teams:setTeams, powerauto:setPowerauto, line:setLine };
@@ -2454,7 +2455,6 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
     } catch(e) { showToast("บันทึกไม่สำเร็จ: "+e.message,"error"); }
   };
 
-  const [smtp, setSmtp] = useState(()=>safe("smtp"));
   const CHANNELS = [
     { id:"smtp", icon:"📮", label:"อีเมล์บริษัท (SMTP — แนะนำ)", color:"#065F46",
       fields:[], // configured via Vercel env vars, no form fields needed
