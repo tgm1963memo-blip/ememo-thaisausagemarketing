@@ -26,16 +26,7 @@ async function createAuthUserREST(email) {
   return data; // { email, localId, ... }
 }
 
-async function sendResetEmailREST(email, name="", isNew=false) {
-  // ลองส่งผ่าน SMTP API ก่อน (อีเมล์บริษัท)
-  try {
-    const r = await fetch("/api/send-reset-email", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ email, name, isNew }),
-    });
-    if (r.ok) return await safeJson(r);
-  } catch {}
-  // Fallback: Firebase REST API
+async function sendResetEmailREST(email) {
   const apiKey = auth.app.options.apiKey;
   const res = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`,
@@ -104,8 +95,7 @@ const writeMemo = async (memoData, isNew) => {
 const patchMemo        = (id, p)   => update(ref(db, `${DATA_PATH}/memos/${id}`), p);
 const writeUsers       = (obj)     => set(ref(db, `${DATA_PATH}/users`), obj);
 const patchUser        = (id, p)   => update(ref(db, `${DATA_PATH}/users/${id}`), p);
-const writeNotifyConfig  = (cfg)   => set(ref(db, `${DATA_PATH}/notifyConfig`), cfg);
-const writeEmailTemplates= (tpls)  => set(ref(db, `${DATA_PATH}/emailTemplates`), tpls);
+const writeNotifyConfig= (cfg)     => set(ref(db, `${DATA_PATH}/notifyConfig`), cfg);
 const writePdfTemplates= (tpls)    => set(ref(db, `${DATA_PATH}/pdfTemplates`), tpls);
 const writeDocCounters = (ctrs)    => set(ref(db, `${DATA_PATH}/docCounters`), ctrs);
 const writeRouteTemplates=(routes) => set(ref(db, `${DATA_PATH}/routeTemplates`), routes||[]);
@@ -121,175 +111,50 @@ async function assignDocNo(memo, users, docCounters) {
   return docNo;
 }
 
-// ── Safe JSON parser — handles HTML error pages from serverless functions ─────
-async function safeJson(res) {
-  const text = await res.text();
-  try { return JSON.parse(text); }
-  catch { throw new Error(`Server error (${res.status}): ${text.slice(0,120)}`); }
-}
-
-// ── Send email via SMTP serverless function ────────────────────────────────────
-async function sendViaSMTP({ to, subject, html, attachments=[], inlineImages=[] }) {
-  // App stores attachments as {name, data(base64 dataURL)} — API expects {filename, content(base64)}
-  const mappedAttachments = attachments
-    .filter(a => a.data)
-    .map(a => ({
-      filename: a.name,
-      content:  a.data.includes(",") ? a.data.split(",")[1] : a.data,
-      contentType: a.type ? `application/${a.type}` : "application/octet-stream",
-    }));
-  const r = await fetch("/api/send-email", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ to, subject, html, attachments: mappedAttachments, inlineImages }),
-  });
-  const d = await safeJson(r);
-  if (!r.ok) throw new Error(d.error || `SMTP error (${r.status})`);
-  return d;
-}
-
-// Interpolate {{var}} placeholders in template
-function applyTemplate(tpl, vars) {
-  if (!tpl) return "";
-  return tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? "");
-}
-
 // [6] ส่งอีเมล์หาผู้อนุมัติเมื่อถึงคิว ─────────────────────────────────────
 // Strip HTML tags helper for email plain-text fields
 const stripHtml = s => (s||"").replace(/<br\s*\/?>/gi,"\n").replace(/<[^>]+>/g,"").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").trim();
 
-// ── Email helper: render {{vars}} in template ─────────────────────────────────
-function renderEmailTpl(html, vars) {
-  return (html||"").replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] != null ? vars[k] : "");
-}
-
-// ── Send email: Resend API (supports HTML+attachments) or EmailJS (fallback) ──
-async function sendEmailWith(cfg, to, subject, html, attachFiles=[]) {
-  if (!cfg) return;
-  // Option A: Resend API — company sender, HTML, attachments
-  if (cfg.resendApiKey) {
-    const payload = {
-      from: cfg.senderEmail || ("E-Memo <noreply@" + window.location.hostname + ">"),
-      to: [to], subject, html,
-    };
-    if (attachFiles.length) {
-      payload.attachments = attachFiles
-        .filter(a => a.data)
-        .map(a => ({ filename: a.name, content: a.data.split(",")[1] || "" }));
-    }
-    const res = await fetch("https://api.resend.com/emails", {
-      method:"POST",
-      headers:{ "Authorization": "Bearer " + cfg.resendApiKey, "Content-Type":"application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Resend error"); }
-    return;
-  }
-  // Option B: EmailJS fallback
-  if (cfg.serviceId) {
-    await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({
-        service_id: cfg.serviceId, template_id: cfg.approverTemplateId || cfg.templateId,
-        user_id: cfg.publicKey,
-        template_params: { to_email:to, subject, html_content:html, company:COMPANY, app_url:window.location.origin },
-      }),
-    });
-  }
-}
-
-// ── Default HTML email template ───────────────────────────────────────────────
-function buildDefaultApproverHtml(vars) {
-  return '<div style="font-family:\'Noto Sans Thai\',Sarabun,sans-serif;max-width:600px;margin:0 auto;">'
-    + '<div style="background:#1E3A5F;padding:18px 24px;border-radius:8px 8px 0 0;">'
-    + '<div style="font-size:17px;font-weight:700;color:#fff;">' + COMPANY + '</div>'
-    + '<div style="font-size:12px;color:rgba(255,255,255,.6);margin-top:2px;">E-Memo System</div></div>'
-    + '<div style="border:1px solid #E5E7EB;border-top:none;padding:24px;border-radius:0 0 8px 8px;">'
-    + '<p style="font-size:15px;color:#111;margin:0 0 12px;">เรียน <strong>' + vars.approver_name + '</strong>,</p>'
-    + '<p style="color:#374151;margin:0 0 16px;">มี Memo รอการอนุมัติของคุณในลำดับที่ <strong>' + vars.level_num + '</strong> (' + vars.mode_label + ')</p>'
-    + '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">'
-    + '<tr><td style="padding:6px 10px;background:#F9FAFB;color:#6B7280;width:90px;border-bottom:1px solid #F3F4F6;">เรื่อง</td><td style="padding:6px 10px;font-weight:600;border-bottom:1px solid #F3F4F6;">' + vars.memo_title + '</td></tr>'
-    + '<tr><td style="padding:6px 10px;background:#F9FAFB;color:#6B7280;border-bottom:1px solid #F3F4F6;">เลขที่</td><td style="padding:6px 10px;font-family:monospace;border-bottom:1px solid #F3F4F6;">' + vars.doc_no + '</td></tr>'
-    + '<tr><td style="padding:6px 10px;background:#F9FAFB;color:#6B7280;border-bottom:1px solid #F3F4F6;">หมวดหมู่</td><td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;">' + vars.category + '</td></tr>'
-    + '<tr><td style="padding:6px 10px;background:#F9FAFB;color:#6B7280;border-bottom:1px solid #F3F4F6;">ผู้สร้าง</td><td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;">' + vars.creator_name + '</td></tr>'
-    + '<tr><td style="padding:6px 10px;background:#F9FAFB;color:#6B7280;">เอกสารแนบ</td><td style="padding:6px 10px;">' + vars.attachments + '</td></tr>'
-    + '</table>'
-    + '<div style="text-align:center;margin:24px 0;">'
-    + '<a href="' + vars.app_url + '" style="background:#1E3A5F;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block;">เข้าสู่ระบบเพื่ออนุมัติ</a>'
-    + '</div>'
-    + '<p style="font-size:11px;color:#9CA3AF;text-align:center;margin:0;">' + COMPANY + '</p>'
-    + '</div></div>';
-}
-
-async function sendApproverEmail(cfg, memo, level, users, emailTemplates={}) {
-  const smtpEnabled  = cfg.smtp?.enabled;
-  const emailEnabled = cfg.email?.enabled && (cfg.email?.resendApiKey || cfg.email?.serviceId);
-  if (!smtpEnabled && !emailEnabled) return;
-
-  const creator   = users.find(u => u.id === memo.createdBy) || {};
-  const modeLabel = level.mode === "any" ? "ผู้ใดผู้หนึ่ง" : "ทุกคน";
-  const attList   = (memo.attachments||[]).map(a=>a.name).join(", ") || "-";
-  const tpl       = (emailTemplates || {}).approver;
+async function sendApproverEmail(cfg, memo, level, users) {
+  if (!cfg.email?.enabled || !cfg.email?.serviceId) return;
+  const creator    = users.find(u => u.id === memo.createdBy) || {};
+  const modeLabel  = level.mode === "any" ? "ผู้ใดผู้หนึ่ง" : "ทุกคน";
+  const attList    = (memo.attachments||[]).map(a=>a.name).join(", ") || "-";
 
   for (const ap of level.approvers) {
     const toEmail = ap.email || (users.find(u=>u.id===ap.userId)||{}).email;
     if (!toEmail) continue;
     try {
-      const vars = {
-        approver_name: ap.name || toEmail,
-        memo_title:    memo.title || "",
-        memo_content:  (memo.content||"").replace(/<[^>]*>/g,"").slice(0,300),
-        creator_name:  creator.name || "-",
-        category:      memo.category || "-",
-        level_num:     String(level.level),
-        mode_label:    modeLabel,
-        attachments:   attList,
-        company:       COMPANY,
-        app_url:       window.location.origin,
-        doc_no:        memo.docNo || "-",
-      };
-      const subject = tpl?.subject
-        ? renderEmailTpl(tpl.subject, vars)
-        : "[E-Memo] Memo รอการอนุมัติ: " + vars.memo_title;
-      const html = tpl?.body
-        ? renderEmailTpl(tpl.body, vars)
-        : buildDefaultApproverHtml(vars);
-
-      if (smtpEnabled) {
-        // ใช้ SMTP บริษัท (แนะนำ) — sendViaSMTP จะแปลง attachment field ให้อัตโนมัติ
-        await sendViaSMTP({ to: toEmail, subject, html, attachments: memo.attachments||[] });
-      } else {
-        const atts = cfg.email?.resendApiKey ? (memo.attachments||[]).filter(a=>a.data) : [];
-        await sendEmailWith(cfg.email, toEmail, subject, html, atts);
-      }
-    } catch(e) { console.warn("sendApproverEmail failed:", e.message); }
+      await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          service_id:  cfg.email.serviceId,
+          template_id: cfg.email.approverTemplateId || cfg.email.templateId,
+          user_id:     cfg.email.publicKey,
+          template_params: {
+            to_email:      toEmail,
+            approver_name: ap.name || toEmail,
+            memo_title:    memo.title,
+            memo_content:  stripHtml(memo.content).slice(0,300),
+            creator_name:  creator.name,
+            category:      memo.category,
+            memo_id:       memo.id,
+            level_num:     level.level,
+            mode_label:    modeLabel,
+            attachments:   attList,
+            company:       COMPANY,
+            app_url:       window.location.origin,
+          },
+        }),
+      });
+    } catch {}
   }
 }
-
 
 async function sendApprovedNotifications(cfg, memo, users) {
   const creator      = users.find(u => u.id === memo.createdBy) || {};
   const approvedDate = new Date().toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
   const summary      = stripHtml(memo.content||"").slice(0,200);
-
-  // SMTP (แนะนำ) — แจ้งผู้สร้าง
-  if (cfg.smtp?.enabled && creator.email) {
-    try {
-      const html = `<div style="font-family:'Noto Sans Thai',Sarabun,sans-serif;max-width:600px;margin:0 auto;">
-        <div style="background:#065F46;padding:18px 24px;border-radius:8px 8px 0 0;">
-          <div style="font-size:17px;font-weight:700;color:#fff;">✅ ${COMPANY}</div>
-          <div style="font-size:12px;color:rgba(255,255,255,.6);">Memo อนุมัติครบแล้ว</div>
-        </div>
-        <div style="border:1px solid #A7F3D0;padding:24px;border-radius:0 0 8px 8px;background:#F0FDF4;">
-          <p>Memo <strong>${memo.title}</strong> ได้รับการอนุมัติครบแล้ว</p>
-          <p>เลขที่: <strong>${memo.docNo||"-"}</strong> | วันที่: ${approvedDate}</p>
-          <div style="text-align:center;margin:20px 0;">
-            <a href="${window.location.origin}" style="background:#065F46;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;">ดูเอกสาร</a>
-          </div>
-        </div></div>`;
-      await sendViaSMTP({ to: creator.email, subject: `[E-Memo] ✅ อนุมัติครบ: ${memo.title}`, html });
-    } catch(e) { console.warn("sendApprovedNotifications smtp failed:", e.message); }
-  }
 
   if (cfg.email?.enabled && cfg.email?.serviceId && memo.notify?.emailList?.length) {
     for (const toEmail of memo.notify.emailList) {
@@ -2209,256 +2074,8 @@ function UsersMgmt({ users, curUser, showToast }) {
   );
 }
 
-// ── EmailTemplateManager — HTML email template editor ─────────────────────────
-const DEFAULT_VARS_HINT = [
-  ["{{approver_name}}","ชื่อผู้อนุมัติ"],["{{memo_title}}","ชื่อเรื่อง"],
-  ["{{doc_no}}","เลขที่เอกสาร"],["{{creator_name}}","ผู้สร้าง"],
-  ["{{category}}","หมวดหมู่"],["{{level_num}}","ลำดับที่"],
-  ["{{mode_label}}","โหมด (ทุกคน/ผู้ใดผู้หนึ่ง)"],["{{attachments}}","เอกสารแนบ"],
-  ["{{app_url}}","URL ระบบ"],["{{company}}","ชื่อบริษัท"],
-  ["{{approved_date}}","วันที่อนุมัติ"],["{{memo_content}}","เนื้อหา"],
-];
-
-const DEFAULT_APPROVER_TPL = {
-  subject: "[E-Memo] Memo รอการอนุมัติ: {{memo_title}}",
-  body: `<div style="font-family:'Noto Sans Thai',Sarabun,sans-serif;max-width:600px;margin:0 auto;">
-  <div style="background:#1E3A5F;padding:18px 24px;border-radius:8px 8px 0 0;">
-    <div style="font-size:17px;font-weight:700;color:#fff;">{{company}}</div>
-    <div style="font-size:12px;color:rgba(255,255,255,.6);">E-Memo System</div>
-  </div>
-  <div style="border:1px solid #E5E7EB;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
-    <p>เรียน <strong>{{approver_name}}</strong>,</p>
-    <p>มี Memo รอการอนุมัติลำดับที่ <strong>{{level_num}}</strong> ({{mode_label}})</p>
-    <table style="width:100%;border-collapse:collapse;font-size:13px;margin:16px 0;">
-      <tr><td style="padding:6px 10px;background:#F9FAFB;color:#6B7280;width:90px;">เรื่อง</td><td style="padding:6px 10px;font-weight:600;">{{memo_title}}</td></tr>
-      <tr><td style="padding:6px 10px;background:#F9FAFB;color:#6B7280;">เลขที่</td><td style="padding:6px 10px;font-family:monospace;">{{doc_no}}</td></tr>
-      <tr><td style="padding:6px 10px;background:#F9FAFB;color:#6B7280;">หมวดหมู่</td><td style="padding:6px 10px;">{{category}}</td></tr>
-      <tr><td style="padding:6px 10px;background:#F9FAFB;color:#6B7280;">ผู้สร้าง</td><td style="padding:6px 10px;">{{creator_name}}</td></tr>
-      <tr><td style="padding:6px 10px;background:#F9FAFB;color:#6B7280;">แนบ</td><td style="padding:6px 10px;">{{attachments}}</td></tr>
-    </table>
-    <div style="text-align:center;margin:24px 0;">
-      <a href="{{app_url}}" style="background:#1E3A5F;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;">เข้าสู่ระบบเพื่ออนุมัติ</a>
-    </div>
-    <p style="font-size:11px;color:#9CA3AF;text-align:center;">{{company}}</p>
-  </div>
-</div>`,
-};
-
-const DEFAULT_APPROVED_TPL = {
-  subject: "[E-Memo] ✅ Memo อนุมัติครบแล้ว: {{memo_title}}",
-  body: `<div style="font-family:'Noto Sans Thai',Sarabun,sans-serif;max-width:600px;margin:0 auto;">
-  <div style="background:#065F46;padding:18px 24px;border-radius:8px 8px 0 0;">
-    <div style="font-size:17px;font-weight:700;color:#fff;">✅ {{company}}</div>
-    <div style="font-size:12px;color:rgba(255,255,255,.6);">Memo อนุมัติครบแล้ว</div>
-  </div>
-  <div style="border:1px solid #A7F3D0;border-top:none;padding:24px;border-radius:0 0 8px 8px;background:#F0FDF4;">
-    <p style="font-size:15px;">Memo ของคุณ <strong>{{memo_title}}</strong> ได้รับการอนุมัติครบแล้ว</p>
-    <table style="width:100%;border-collapse:collapse;font-size:13px;margin:16px 0;background:#fff;border-radius:8px;overflow:hidden;">
-      <tr><td style="padding:6px 10px;background:#ECFDF5;color:#065F46;width:90px;">เลขที่</td><td style="padding:6px 10px;font-family:monospace;font-weight:600;">{{doc_no}}</td></tr>
-      <tr><td style="padding:6px 10px;background:#ECFDF5;color:#065F46;">วันที่อนุมัติ</td><td style="padding:6px 10px;">{{approved_date}}</td></tr>
-      <tr><td style="padding:6px 10px;background:#ECFDF5;color:#065F46;">หมวดหมู่</td><td style="padding:6px 10px;">{{category}}</td></tr>
-    </table>
-    <div style="text-align:center;margin:20px 0;">
-      <a href="{{app_url}}" style="background:#065F46;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;">ดูเอกสาร</a>
-    </div>
-    <p style="font-size:11px;color:#9CA3AF;text-align:center;">{{company}}</p>
-  </div>
-</div>`,
-};
-
-function EmailTemplateManager({ emailTemplates, onSave, onClose }) {
-  const [tab, setTab]         = useState("approver"); // "approver" | "approved" | "reset"
-  const [approver, setApprover] = useState(() => emailTemplates?.approver  || DEFAULT_APPROVER_TPL);
-  const [approved, setApproved] = useState(() => emailTemplates?.approved  || DEFAULT_APPROVED_TPL);
-  const [reset, setReset] = useState(() => emailTemplates?.reset || DEFAULT_RESET_TPL);
-  const [preview, setPreview] = useState(false);
-  const [saving,  setSaving]  = useState(false);
-  const imgRef = useRef();
-
-  const cur    = tab==="approver"?approver:tab==="approved"?approved:reset;
-  const setCur = tab==="approver"?setApprover:tab==="approved"?setApproved:setReset;
-  const updField = (k, v) => setCur(p => ({ ...p, [k]: v }));
-
-  // Insert image as base64 into body
-  const insertImage = e => {
-    const f = e.target.files[0]; if (!f) return;
-    const r = new FileReader();
-    r.onload = ev => {
-      const tag = `<img src="${ev.target.result}" style="max-width:100%;height:auto;" alt="${f.name}"/>`;
-      updField("body", (cur.body||"") + "\n" + tag);
-    };
-    r.readAsDataURL(f); e.target.value = "";
-  };
-
-  // Preview with sample values
-  const sampleVars = {
-    approver_name:"สมชาย ใจดี", memo_title:"ขออนุมัติงบประมาณ Q3",
-    doc_no:"DCKY-2569-0042", creator_name:"รัตนา แก้วใส",
-    category:"งบประมาณ", level_num:"1", mode_label:"ทุกคน",
-    attachments:"budget_q3.pdf", company:COMPANY,
-    app_url:window.location.origin, approved_date:"30 เม.ย. 2569 14:23",
-    memo_content:"ขออนุมัติงบประมาณสำหรับไตรมาส 3 จำนวน 500,000 บาท",
-  };
-
-  const save = async () => {
-    setSaving(true);
-    try { await onSave({ approver, approved, reset }); onClose(); }
-    catch(e) { alert("บันทึกไม่สำเร็จ: " + e.message); }
-    finally { setSaving(false); }
-  };
-  // Send test email using current template
-  const sendTest = async () => {
-    const testEmail = prompt("กรอกอีเมล์สำหรับทดสอบ:");
-    if (!testEmail) return;
-    const vars = { ...sampleVars, to_email: testEmail };
-    const html = applyTemplate(cur.body, vars);
-    const subj = applyTemplate(cur.subject, vars);
-    try {
-      const r = await fetch("/api/send-email", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ to: testEmail, subject: subj, html }),
-      });
-      const d = await safeJson(r);
-      if (d.success) alert("✅ ส่งอีเมล์ทดสอบสำเร็จ");
-      else alert("❌ "+d.error);
-    } catch(e) { alert("❌ "+e.message); }
-  };
-
-  const TABS = [["approver","แจ้งผู้อนุมัติ"],["approved","แจ้งอนุมัติครบ"],["reset","Reset Password"]];
-
-  return (
-    <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.6)"}}>
-      <div style={{background:"#fff",borderRadius:14,width:820,maxHeight:"92vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 80px rgba(0,0,0,.3)"}}>
-        {/* Header */}
-        <div style={{padding:"18px 24px 0",borderBottom:"1px solid #F3F4F6",flexShrink:0}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-            <div>
-              <div style={{fontSize:16,fontWeight:700,color:"#111"}}>✉ จัดการ Email Template</div>
-              <div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>ออกแบบอีเมล์ด้วย HTML — รองรับรูปภาพและตัวแปร {"{{var}}"}</div>
-            </div>
-            <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,color:"#9CA3AF"}}>✕</button>
-          </div>
-          {/* Tabs */}
-          <div style={{display:"flex",gap:0}}>
-            {TABS.map(([k,l])=>(
-              <button key={k} onClick={()=>{setTab(k);setPreview(false);}}
-                style={{padding:"8px 18px",background:"none",border:"none",borderBottom:`2px solid ${tab===k?"#1E3A5F":"transparent"}`,
-                  color:tab===k?"#1E3A5F":"#9CA3AF",fontWeight:tab===k?600:400,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>
-                {l}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Body */}
-        <div style={{flex:1,overflowY:"auto",padding:24}}>
-          {/* Variables hint */}
-          <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:8,padding:"10px 14px",marginBottom:16}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#1E40AF",marginBottom:6}}>📋 ตัวแปรที่ใช้ได้ใน subject และ body</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:"4px 12px"}}>
-              {DEFAULT_VARS_HINT.map(([v,d])=>(
-                <span key={v} style={{fontSize:11}}>
-                  <code style={{background:"#DBEAFE",color:"#1E40AF",padding:"1px 5px",borderRadius:3,fontSize:10,cursor:"pointer"}}
-                    onClick={()=>updField("body",(cur.body||"")+" "+v)}
-                    title="คลิกเพื่อแทรก">
-                    {v}
-                  </code>
-                  <span style={{color:"#6B7280",marginLeft:3}}>{d}</span>
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {!preview ? (
-            <>
-              {/* Subject */}
-              <div style={{marginBottom:14}}>
-                <label style={{fontSize:11,fontWeight:600,color:"#6B7280",display:"block",marginBottom:4}}>หัวข้ออีเมล์ (Subject)</label>
-                <input value={cur.subject||""} onChange={e=>updField("subject",e.target.value)}
-                  style={{width:"100%",padding:"8px 11px",border:"1px solid #E5E7EB",borderRadius:7,fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
-              </div>
-              {/* Body */}
-              <div style={{marginBottom:10}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#6B7280"}}>เนื้อหาอีเมล์ (HTML)</label>
-                  <div style={{display:"flex",gap:6}}>
-                    <button onClick={()=>imgRef.current?.click()}
-                      style={{padding:"3px 10px",fontSize:11,background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:5,cursor:"pointer",color:"#374151"}}>
-                      🖼 แทรกรูป
-                    </button>
-                    <input ref={imgRef} type="file" accept="image/*" style={{display:"none"}} onChange={insertImage}/>
-                    <button onClick={()=>updField("body",tab==="approver"?DEFAULT_APPROVER_TPL.body:DEFAULT_APPROVED_TPL.body)}
-                      style={{padding:"3px 10px",fontSize:11,background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:5,cursor:"pointer",color:"#374151"}}>
-                      ↺ Reset Default
-                    </button>
-                  </div>
-                </div>
-                <textarea value={cur.body||""} onChange={e=>updField("body",e.target.value)}
-                  rows={16} spellCheck={false}
-                  style={{width:"100%",padding:"10px 12px",border:"1px solid #E5E7EB",borderRadius:7,fontSize:12,
-                    fontFamily:"'Courier New',monospace",lineHeight:1.6,resize:"vertical",boxSizing:"border-box",color:"#111"}}/>
-              </div>
-            </>
-          ) : (
-            /* Preview */
-            <div>
-              <div style={{fontSize:12,color:"#6B7280",marginBottom:8}}>Subject: <strong>{renderEmailTpl(cur.subject||"",sampleVars)}</strong></div>
-              <div style={{border:"1px solid #E5E7EB",borderRadius:8,padding:20,background:"#F9FAFB",minHeight:300}}>
-                <div dangerouslySetInnerHTML={{__html: renderEmailTpl(cur.body||"",sampleVars)}}/>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div style={{padding:"14px 24px",borderTop:"1px solid #F3F4F6",display:"flex",gap:10,alignItems:"center",flexShrink:0}}>
-          <button onClick={()=>setPreview(p=>!p)}
-            style={{padding:"9px 18px",background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:7,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
-            {preview?"✏ แก้ไข":"👁 ดูตัวอย่าง"}
-          </button>
-          <div style={{flex:1}}/>
-          <button onClick={sendTest}
-            style={{padding:"9px 16px",background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:7,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-            📧 ส่งอีเมล์ทดสอบ
-          </button>
-          <button onClick={save} disabled={saving}
-            style={{padding:"9px 24px",background:"#1E3A5F",color:"#fff",border:"none",borderRadius:7,fontSize:13,fontWeight:600,cursor:saving?"not-allowed":"pointer",fontFamily:"inherit",opacity:saving?.7:1}}>
-            {saving?"กำลังบันทึก...":"💾 บันทึก Template"}
-          </button>
-          <button onClick={onClose}
-            style={{padding:"9px 18px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:7,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
-            ยกเลิก
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // Default notify config shape (used by SettingsView)
-const DEFAULT_RESET_TPL = {
-  subject: "[E-Memo] ตั้ง/รีเซ็ตรหัสผ่านของคุณ",
-  body: `<div style="font-family:'Noto Sans Thai',Sarabun,sans-serif;max-width:560px;margin:0 auto;">
-  <div style="background:#1E3A5F;padding:20px 28px;border-radius:8px 8px 0 0;">
-    <div style="font-size:16px;font-weight:700;color:#fff;">{{company}}</div>
-    <div style="font-size:11px;color:rgba(255,255,255,.6);">E-Memo System</div>
-  </div>
-  <div style="border:1px solid #E5E7EB;border-top:3px solid #CC2229;padding:28px;border-radius:0 0 8px 8px;background:#fff;">
-    <p>เรียน <strong>{{name}}</strong>,</p>
-    <p>{{greeting}}</p>
-    <div style="text-align:center;margin:24px 0;">
-      <a href="{{reset_link}}" style="background:#CC2229;color:#fff;padding:13px 32px;border-radius:7px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">
-        ตั้งรหัสผ่าน →
-      </a>
-    </div>
-    <p style="font-size:11px;color:#9CA3AF;">ลิงก์นี้จะหมดอายุใน 1 ชั่วโมง</p>
-    <div style="border-top:1px solid #F3F4F6;margin-top:20px;padding-top:12px;font-size:10px;color:#D1D5DB;text-align:center;">{{company}}</div>
-  </div>
-</div>`,
-};
-
 const DEFAULT_NOTIFY = {
-  smtp:      { enabled:false, configured:false, testEmail:"" },
   email:     { enabled:false, serviceId:"", templateId:"", approverTemplateId:"", publicKey:"" },
   teams:     { enabled:false, webhookUrl:"" },
   powerauto: { enabled:false, webhookUrl:"" },
@@ -2471,50 +2088,22 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
   const [teams,     setTeams]     = useState(()=>safe("teams"));
   const [powerauto, setPowerauto] = useState(()=>safe("powerauto"));
   const [line,      setLine]      = useState(()=>safe("line"));
-  const [smtp,      setSmtp]      = useState(()=>safe("smtp"));
 
-  const cfgMap  = { smtp, email, teams, powerauto, line };
-  const setMap  = { smtp:setSmtp, email:setEmail, teams:setTeams, powerauto:setPowerauto, line:setLine };
+  const cfgMap  = { email, teams, powerauto, line };
+  const setMap  = { email:setEmail, teams:setTeams, powerauto:setPowerauto, line:setLine };
   const setF    = (ch,k,v) => setMap[ch](p=>({...p,[k]:v}));
-
-  // Test SMTP connection
-  const testSmtp = async () => {
-    try {
-      const r = await fetch("/api/send-email", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({to: cfgMap.smtp.testEmail || email?.serviceId || "", subject:"[E-Memo] ทดสอบการส่งอีเมล์", html:"<p>ทดสอบการส่งอีเมล์จากระบบ E-Memo สำเร็จ</p>"}),
-      });
-      const d = await safeJson(r);
-      if(d.success) alert("✅ ส่งอีเมล์ทดสอบสำเร็จ");
-      else alert("❌ ไม่สำเร็จ: "+(d.error||"unknown error"));
-    } catch(e) { alert("❌ เชื่อมต่อไม่ได้: "+e.message); }
-  };
 
   const save = async () => {
     try {
-      await writeNotifyConfig({ smtp, email, teams, powerauto, line });
+      await writeNotifyConfig({ email, teams, powerauto, line });
       showToast("บันทึกการตั้งค่าแล้ว");
     } catch(e) { showToast("บันทึกไม่สำเร็จ: "+e.message,"error"); }
   };
 
   const CHANNELS = [
-    { id:"smtp", icon:"📮", label:"อีเมล์บริษัท (SMTP — แนะนำ)", color:"#065F46",
-      fields:[], // configured via Vercel env vars, no form fields needed
-      guide:[
-        "1. ไปที่ Vercel Dashboard → Project → Settings → Environment Variables",
-        "2. เพิ่มตัวแปร: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM",
-        "   ตัวอย่าง Gmail: SMTP_HOST=smtp.gmail.com, PORT=587, USER=your@gmail.com",
-        "   ตัวอย่างบริษัท: SMTP_HOST=mail.thaisauces.co.th, PORT=587",
-        "   SMTP_PASS = App Password (Gmail) หรือรหัสอีเมล์บริษัท",
-        "   SMTP_FROM = Thai Sausage Marketing <noreply@thaisauces.co.th>",
-        "3. Deploy ใหม่เพื่อให้ค่าใช้งาน",
-        "4. เปิดใช้งานที่นี่ — ระบบจะส่งอีเมล์จากเมล์บริษัทโดยอัตโนมัติ",
-      ],
-      isSmtp: true,
-    },
-    { id:"email", icon:"✉", label:"อีเมล์ (EmailJS — fallback)",    color:"#1E40AF",
+    { id:"email",    icon:"✉",  label:"อีเมล์ (EmailJS)",             color:"#1E40AF",
       fields:[{k:"serviceId",label:"Service ID",ph:"service_xxxxxxx"},{k:"templateId",label:"Template ID (แจ้งเมื่ออนุมัติ)",ph:"template_xxxxxxx"},{k:"approverTemplateId",label:"Template ID (แจ้งผู้อนุมัติ)",ph:"template_xxxxxxx"},{k:"publicKey",label:"Public Key",ph:"your_public_key"}],
-      guide:["สมัครที่ emailjs.com (ฟรี 200/เดือน)","ใช้เป็น fallback กรณี SMTP ไม่ได้ตั้งค่า"] },
+      guide:["สมัครที่ emailjs.com (ฟรี 200/เดือน)","สร้าง Email Service → Gmail/Outlook","สร้าง Template ใช้ตัวแปร {{memo_title}} {{creator_name}} {{to_email}}","คัดลอก Service ID / Template ID / Public Key มากรอก"] },
     { id:"teams",    icon:"🔵", label:"Microsoft Teams Webhook",        color:"#464EB8",
       fields:[{k:"webhookUrl",label:"Webhook URL",ph:"https://your-org.webhook.office.com/..."}],
       guide:["Teams → Channel → ⋯ → Connectors → Incoming Webhook","ตั้งชื่อ E-Memo → Create → Copy URL"] },
@@ -2552,7 +2141,7 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
               <span style={{fontSize:20}}>{ch.icon}</span>
               <div style={{flex:1}}>
                 <div style={{fontSize:13,fontWeight:500,color:"#111"}}>{ch.label}</div>
-                <div style={{fontSize:11,color:"#9CA3AF"}}>{c.enabled?"เปิดใช้งาน":"คลิกเพื่อเปิดใช้งาน"}</div>
+                <div style={{fontSize:11,color:"#9CA3AF"}}>{c.enabled?"เปิดใช้งาน — กรอกข้อมูลด้านล่าง":"คลิกเพื่อเปิดใช้งาน"}</div>
               </div>
               <Toggle value={!!c.enabled} onChange={v=>{setF(ch.id,"enabled",v);}}/>
             </div>
@@ -2560,29 +2149,17 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
               <div style={{padding:"14px 16px",borderTop:"1px solid #F3F4F6"}}>
                 <div style={{padding:"10px 12px",background:ch.color+"18",border:`1px solid ${ch.color}44`,borderRadius:6,marginBottom:12}}>
                   <div style={{fontSize:11,fontWeight:600,color:ch.color,marginBottom:4}}>วิธีตั้งค่า</div>
-                  {ch.guide.map((g,i)=><div key={i} style={{fontSize:11,color:"#6B7280",padding:"2px 0"}}>{g}</div>)}
+                  {ch.guide.map((g,i)=><div key={i} style={{fontSize:11,color:"#6B7280",padding:"1px 0"}}>{i+1}. {g}</div>)}
                 </div>
-                {ch.isSmtp && (
-                  <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
-                    <input value={c.testEmail||""} onChange={e=>setF("smtp","testEmail",e.target.value)}
-                      placeholder="อีเมล์สำหรับทดสอบ..."
-                      style={{flex:1,padding:"7px 9px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,boxSizing:"border-box"}}/>
-                    <button onClick={testSmtp} style={{padding:"7px 14px",background:"#065F46",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
-                      ส่งทดสอบ
-                    </button>
-                  </div>
-                )}
-                {ch.fields.length>0 && (
-                  <div style={{display:"grid",gridTemplateColumns:ch.fields.length>1?"1fr 1fr":"1fr",gap:8}}>
-                    {ch.fields.map(f=>(
-                      <div key={f.k} style={{marginBottom:6}}>
-                        <label style={{fontSize:11,fontWeight:600,color:"#6B7280",display:"block",marginBottom:3}}>{f.label}</label>
-                        <input value={c[f.k]||""} onChange={e=>setF(ch.id,f.k,e.target.value)} placeholder={f.ph}
-                          style={{width:"100%",padding:"7px 9px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,background:"#fff",color:"#111",boxSizing:"border-box"}}/>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div style={{display:"grid",gridTemplateColumns:ch.fields.length>1?"1fr 1fr":"1fr",gap:8}}>
+                  {ch.fields.map(f=>(
+                    <div key={f.k} style={{marginBottom:6}}>
+                      <label style={{fontSize:11,fontWeight:600,color:"#6B7280",display:"block",marginBottom:3}}>{f.label}</label>
+                      <input value={c[f.k]||""} onChange={e=>setF(ch.id,f.k,e.target.value)} placeholder={f.ph}
+                        style={{width:"100%",padding:"7px 9px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,background:"#fff",color:"#111",boxSizing:"border-box"}}/>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
