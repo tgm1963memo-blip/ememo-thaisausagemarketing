@@ -2227,6 +2227,7 @@ function EmailTemplateManager({ emailTemplates, onSave, onClose }) {
   const [tab, setTab]         = useState("approver"); // "approver" | "approved" | "reset"
   const [approver, setApprover] = useState(() => emailTemplates?.approver  || DEFAULT_APPROVER_TPL);
   const [approved, setApproved] = useState(() => emailTemplates?.approved  || DEFAULT_APPROVED_TPL);
+  const [reset, setReset] = useState(() => emailTemplates?.reset || DEFAULT_RESET_TPL);
   const [preview, setPreview] = useState(false);
   const [saving,  setSaving]  = useState(false);
   const imgRef = useRef();
@@ -2280,7 +2281,6 @@ function EmailTemplateManager({ emailTemplates, onSave, onClose }) {
     } catch(e) { alert("❌ "+e.message); }
   };
 
-  const [reset, setReset] = useState(() => emailTemplates?.reset || DEFAULT_RESET_TPL);
   const TABS = [["approver","แจ้งผู้อนุมัติ"],["approved","แจ้งอนุมัติครบ"],["reset","Reset Password"]];
 
   return (
