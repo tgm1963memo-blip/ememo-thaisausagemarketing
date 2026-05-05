@@ -46,7 +46,7 @@ export default async function handler(req, res) {
 
   if (!smtpConfig.auth.user || !smtpConfig.auth.pass) {
     return res.status(500).json({
-      error: "SMTP credentials not configured. Please set SMTP_USER and SMTP_PASS in Vercel environment variables.",
+      error: "SMTP ยังไม่ได้ตั้งค่า — กรุณาเพิ่ม SMTP_HOST, SMTP_USER, SMTP_PASS ใน Vercel Environment Variables แล้ว Redeploy",
     });
   }
 

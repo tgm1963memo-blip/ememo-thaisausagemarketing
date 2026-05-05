@@ -33,7 +33,7 @@ async function sendResetEmailREST(email, name="", isNew=false) {
       method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ email, name, isNew }),
     });
-    if (r.ok) return await r.json();
+    if (r.ok) return await safeJson(r);
   } catch {}
   // Fallback: Firebase REST API
   const apiKey = auth.app.options.apiKey;
@@ -121,15 +121,31 @@ async function assignDocNo(memo, users, docCounters) {
   return docNo;
 }
 
+// ── Safe JSON parser — handles HTML error pages from serverless functions ─────
+async function safeJson(res) {
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch { throw new Error(`Server error (${res.status}): ${text.slice(0,120)}`); }
+}
+
 // ── Send email via SMTP serverless function ────────────────────────────────────
 async function sendViaSMTP({ to, subject, html, attachments=[], inlineImages=[] }) {
+  // App stores attachments as {name, data(base64 dataURL)} — API expects {filename, content(base64)}
+  const mappedAttachments = attachments
+    .filter(a => a.data)
+    .map(a => ({
+      filename: a.name,
+      content:  a.data.includes(",") ? a.data.split(",")[1] : a.data,
+      contentType: a.type ? `application/${a.type}` : "application/octet-stream",
+    }));
   const r = await fetch("/api/send-email", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ to, subject, html, attachments, inlineImages }),
+    body: JSON.stringify({ to, subject, html, attachments: mappedAttachments, inlineImages }),
   });
-  if (!r.ok) throw new Error((await r.json()).error || "SMTP error");
-  return await r.json();
+  const d = await safeJson(r);
+  if (!r.ok) throw new Error(d.error || `SMTP error (${r.status})`);
+  return d;
 }
 
 // Interpolate {{var}} placeholders in template
@@ -206,8 +222,10 @@ function buildDefaultApproverHtml(vars) {
 }
 
 async function sendApproverEmail(cfg, memo, level, users, emailTemplates={}) {
-  if (!cfg.email?.enabled) return;
-  if (!cfg.email?.resendApiKey && !cfg.email?.serviceId) return;
+  const smtpEnabled  = cfg.smtp?.enabled;
+  const emailEnabled = cfg.email?.enabled && (cfg.email?.resendApiKey || cfg.email?.serviceId);
+  if (!smtpEnabled && !emailEnabled) return;
+
   const creator   = users.find(u => u.id === memo.createdBy) || {};
   const modeLabel = level.mode === "any" ? "ผู้ใดผู้หนึ่ง" : "ทุกคน";
   const attList   = (memo.attachments||[]).map(a=>a.name).join(", ") || "-";
@@ -236,8 +254,14 @@ async function sendApproverEmail(cfg, memo, level, users, emailTemplates={}) {
       const html = tpl?.body
         ? renderEmailTpl(tpl.body, vars)
         : buildDefaultApproverHtml(vars);
-      const atts = cfg.email?.resendApiKey ? (memo.attachments||[]).filter(a=>a.data) : [];
-      await sendEmailWith(cfg.email, toEmail, subject, html, atts);
+
+      if (smtpEnabled) {
+        // ใช้ SMTP บริษัท (แนะนำ) — sendViaSMTP จะแปลง attachment field ให้อัตโนมัติ
+        await sendViaSMTP({ to: toEmail, subject, html, attachments: memo.attachments||[] });
+      } else {
+        const atts = cfg.email?.resendApiKey ? (memo.attachments||[]).filter(a=>a.data) : [];
+        await sendEmailWith(cfg.email, toEmail, subject, html, atts);
+      }
     } catch(e) { console.warn("sendApproverEmail failed:", e.message); }
   }
 }
@@ -247,6 +271,25 @@ async function sendApprovedNotifications(cfg, memo, users) {
   const creator      = users.find(u => u.id === memo.createdBy) || {};
   const approvedDate = new Date().toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
   const summary      = stripHtml(memo.content||"").slice(0,200);
+
+  // SMTP (แนะนำ) — แจ้งผู้สร้าง
+  if (cfg.smtp?.enabled && creator.email) {
+    try {
+      const html = `<div style="font-family:'Noto Sans Thai',Sarabun,sans-serif;max-width:600px;margin:0 auto;">
+        <div style="background:#065F46;padding:18px 24px;border-radius:8px 8px 0 0;">
+          <div style="font-size:17px;font-weight:700;color:#fff;">✅ ${COMPANY}</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.6);">Memo อนุมัติครบแล้ว</div>
+        </div>
+        <div style="border:1px solid #A7F3D0;padding:24px;border-radius:0 0 8px 8px;background:#F0FDF4;">
+          <p>Memo <strong>${memo.title}</strong> ได้รับการอนุมัติครบแล้ว</p>
+          <p>เลขที่: <strong>${memo.docNo||"-"}</strong> | วันที่: ${approvedDate}</p>
+          <div style="text-align:center;margin:20px 0;">
+            <a href="${window.location.origin}" style="background:#065F46;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;">ดูเอกสาร</a>
+          </div>
+        </div></div>`;
+      await sendViaSMTP({ to: creator.email, subject: `[E-Memo] ✅ อนุมัติครบ: ${memo.title}`, html });
+    } catch(e) { console.warn("sendApprovedNotifications smtp failed:", e.message); }
+  }
 
   if (cfg.email?.enabled && cfg.email?.serviceId && memo.notify?.emailList?.length) {
     for (const toEmail of memo.notify.emailList) {
@@ -2275,7 +2318,7 @@ function EmailTemplateManager({ emailTemplates, onSave, onClose }) {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ to: testEmail, subject: subj, html }),
       });
-      const d = await r.json();
+      const d = await safeJson(r);
       if (d.success) alert("✅ ส่งอีเมล์ทดสอบสำเร็จ");
       else alert("❌ "+d.error);
     } catch(e) { alert("❌ "+e.message); }
@@ -2416,7 +2459,6 @@ const DEFAULT_RESET_TPL = {
 
 const DEFAULT_NOTIFY = {
   smtp:      { enabled:false, configured:false, testEmail:"" },
-  smtp:      { enabled:false, configured:false },  // SMTP configured via Vercel env vars
   email:     { enabled:false, serviceId:"", templateId:"", approverTemplateId:"", publicKey:"" },
   teams:     { enabled:false, webhookUrl:"" },
   powerauto: { enabled:false, webhookUrl:"" },
@@ -2442,9 +2484,9 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({to: cfgMap.smtp.testEmail || email?.serviceId || "", subject:"[E-Memo] ทดสอบการส่งอีเมล์", html:"<p>ทดสอบการส่งอีเมล์จากระบบ E-Memo สำเร็จ</p>"}),
       });
-      const d = await r.json();
+      const d = await safeJson(r);
       if(d.success) alert("✅ ส่งอีเมล์ทดสอบสำเร็จ");
-      else alert("❌ ไม่สำเร็จ: "+d.error);
+      else alert("❌ ไม่สำเร็จ: "+(d.error||"unknown error"));
     } catch(e) { alert("❌ เชื่อมต่อไม่ได้: "+e.message); }
   };
 
