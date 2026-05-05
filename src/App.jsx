@@ -200,7 +200,15 @@ async function sendApprovedNotifications(cfg, memo, users) {
   const appUrl       = window.location.origin;
 
   // ส่งอีเมล์ผ่าน SMTP บริษัท
-  if (cfg.email?.enabled && memo.notify?.emailList?.length) {
+  // Build email recipients: creator + notify list (deduplicated)
+  const creatorEmail = creator.email || "";
+  const notifyList   = memo.notify?.emailList || [];
+  const allRecipients = [...new Set([
+    ...(creatorEmail ? [creatorEmail] : []),
+    ...notifyList,
+  ])];
+
+  if (cfg.email?.enabled && allRecipients.length) {
     const html = `
       <div style="font-family:'Noto Sans Thai',Sarabun,sans-serif;max-width:560px;margin:0 auto;">
         <div style="background:#1E3A5F;padding:20px 28px;border-radius:8px 8px 0 0;">
@@ -213,9 +221,10 @@ async function sendApprovedNotifications(cfg, memo, users) {
           <table style="width:100%;border-collapse:collapse;font-size:13px;margin:8px 0;">
             <tr><td style="color:#6B7280;padding:4px 0;width:100px;">ชื่อเรื่อง:</td><td style="font-weight:600;color:#111;">${memo.title}</td></tr>
             <tr><td style="color:#6B7280;padding:4px 0;">หมวดหมู่:</td><td>${memo.category||"-"}</td></tr>
-            <tr><td style="color:#6B7280;padding:4px 0;">ผู้สร้าง:</td><td>${creator.name||"-"}</td></tr>
+            <tr><td style="color:#6B7280;padding:4px 0;">ผู้สร้าง:</td><td>${creator.name||"-"}${creator.dept?" ("+creator.dept+")":""}</td></tr>
             <tr><td style="color:#6B7280;padding:4px 0;">วันที่อนุมัติ:</td><td>${approvedDate}</td></tr>
             ${memo.docNo?`<tr><td style="color:#6B7280;padding:4px 0;">เลขที่เอกสาร:</td><td style="font-family:monospace;color:#1D4ED8;">${memo.docNo}</td></tr>`:""}
+            <tr><td style="color:#6B7280;padding:4px 0;">ผู้อนุมัติ:</td><td>${(memo.workflowLevels||[]).flatMap(lv=>lv.approvers||[]).filter(a=>a.status==="approved").map(a=>a.name||(users.find(u=>u.id===a.userId)||{}).name||a.email||"-").join(", ")||"-"}</td></tr>
           </table>
           ${summary?`<div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:6px;padding:12px;margin:12px 0;font-size:12px;color:#374151;">${summary}${summary.length>=200?"...":""}</div>`:""}
           <div style="text-align:center;margin:20px 0;">
@@ -228,7 +237,7 @@ async function sendApprovedNotifications(cfg, memo, users) {
           </div>
         </div>
       </div>`;
-    for (const toEmail of memo.notify.emailList) {
+    for (const toEmail of allRecipients) {
       try {
         await sendMemoEmail({
           to: toEmail,
