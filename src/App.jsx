@@ -200,15 +200,7 @@ async function sendApprovedNotifications(cfg, memo, users) {
   const appUrl       = window.location.origin;
 
   // ส่งอีเมล์ผ่าน SMTP บริษัท
-  // Build email recipients: creator + notify list (deduplicated)
-  const creatorEmail = creator.email || "";
-  const notifyList   = memo.notify?.emailList || [];
-  const allRecipients = [...new Set([
-    ...(creatorEmail ? [creatorEmail] : []),
-    ...notifyList,
-  ])];
-
-  if (cfg.email?.enabled && allRecipients.length) {
+  if (cfg.email?.enabled && memo.notify?.emailList?.length) {
     const html = `
       <div style="font-family:'Noto Sans Thai',Sarabun,sans-serif;max-width:560px;margin:0 auto;">
         <div style="background:#1E3A5F;padding:20px 28px;border-radius:8px 8px 0 0;">
@@ -221,10 +213,9 @@ async function sendApprovedNotifications(cfg, memo, users) {
           <table style="width:100%;border-collapse:collapse;font-size:13px;margin:8px 0;">
             <tr><td style="color:#6B7280;padding:4px 0;width:100px;">ชื่อเรื่อง:</td><td style="font-weight:600;color:#111;">${memo.title}</td></tr>
             <tr><td style="color:#6B7280;padding:4px 0;">หมวดหมู่:</td><td>${memo.category||"-"}</td></tr>
-            <tr><td style="color:#6B7280;padding:4px 0;">ผู้สร้าง:</td><td>${creator.name||"-"}${creator.dept?" ("+creator.dept+")":""}</td></tr>
+            <tr><td style="color:#6B7280;padding:4px 0;">ผู้สร้าง:</td><td>${creator.name||"-"}</td></tr>
             <tr><td style="color:#6B7280;padding:4px 0;">วันที่อนุมัติ:</td><td>${approvedDate}</td></tr>
             ${memo.docNo?`<tr><td style="color:#6B7280;padding:4px 0;">เลขที่เอกสาร:</td><td style="font-family:monospace;color:#1D4ED8;">${memo.docNo}</td></tr>`:""}
-            <tr><td style="color:#6B7280;padding:4px 0;">ผู้อนุมัติ:</td><td>${(memo.workflowLevels||[]).flatMap(lv=>lv.approvers||[]).filter(a=>a.status==="approved").map(a=>a.name||(users.find(u=>u.id===a.userId)||{}).name||a.email||"-").join(", ")||"-"}</td></tr>
           </table>
           ${summary?`<div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:6px;padding:12px;margin:12px 0;font-size:12px;color:#374151;">${summary}${summary.length>=200?"...":""}</div>`:""}
           <div style="text-align:center;margin:20px 0;">
@@ -237,7 +228,7 @@ async function sendApprovedNotifications(cfg, memo, users) {
           </div>
         </div>
       </div>`;
-    for (const toEmail of allRecipients) {
+    for (const toEmail of memo.notify.emailList) {
       try {
         await sendMemoEmail({
           to: toEmail,
@@ -637,6 +628,7 @@ function ApprovalTimeline({ memo, users, compact=false }) {
                       {ap.email && ap.email!==(u.email||"") && <div style={{fontSize:10,color:"#9CA3AF"}}>{ap.email}</div>}
                     </div>
                     <span style={{background:sc.bg,color:sc.text,border:`1px solid ${sc.border}`,borderRadius:4,padding:"1px 6px",fontSize:10,whiteSpace:"nowrap"}}>{STATUS_LABEL[ap.status]||"รอ"}</span>
+                    {ap.proxyByName&&<span style={{fontSize:9,background:"#FFF7ED",color:"#C2410C",border:"1px solid #FED7AA",borderRadius:4,padding:"1px 5px",whiteSpace:"nowrap"}}>แทนโดย {ap.proxyByName}</span>}
                     {ap.signature && <img src={ap.signature} alt="sig" style={{height:24,border:"1px solid #E5E7EB",borderRadius:4,background:"#fff"}}/>}
                   </div>
                 );
@@ -753,7 +745,7 @@ function MemoRow({ memo, users, onClick, highlight, curUser, onRecall, onEdit })
   );
 }
 
-function ActionModal({ modal, onClose, onApprove, onReject, curUser }) {
+function ActionModal({ modal, onClose, onApprove, onReject, curUser, isProxy=false, proxyFor=null }) {
   const [comment,      setComment]      = useState("");
   const [lineComments, setLineComments] = useState({}); // { lineIdx: "text" }
   const [showLines,    setShowLines]    = useState(false);
@@ -1818,9 +1810,15 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
   // [3][7] find if current user can approve in the active level
   const activeLevel    = getActiveLevel(memo);
   const myStep         = activeLevel?.approvers?.find(ap=>(ap.userId&&ap.userId===curUser.id)||(ap.email&&ap.email===curUser.email));
-  const canApprove     = memo.status==="pending" && !!myStep && myStep.status==="pending" && can(curUser.role,"approve");
+  const isSuperAdmin   = curUser.role === "superadmin";
+  // Superadmin can approve on behalf of any pending approver in the active level
+  const canApproveOwn  = memo.status==="pending" && !!myStep && myStep.status==="pending" && can(curUser.role,"approve");
+  const canApproveProxy= memo.status==="pending" && isSuperAdmin &&
+    (activeLevel?.approvers||[]).some(ap=>ap.status==="pending") && !canApproveOwn;
+  const canApprove     = canApproveOwn || canApproveProxy;
 
   const ALABEL={created:"สร้าง",submitted:"ส่งอนุมัติ",approved:"อนุมัติ",rejected:"ปฏิเสธ",recalled:"เรียกคืน",edited:"แก้ไข",resubmitted:"ส่งกลับ",addedLevel:"เพิ่มลำดับ"};
+  const fmtHistAction = (h) => h.proxyFor ? `อนุมัติแทน ${h.proxyFor}` : (ALABEL[h.action]||h.action);
   const ACOLOR={approved:"#065F46",rejected:"#991B1B",recalled:"#1E40AF",submitted:"#B45309",addedLevel:"#7C3AED"};
   const handleFile=e=>{const f=e.target.files[0];if(f)onAddFile(f);e.target.value="";};
   const notify=memo.notify||{};
@@ -1917,7 +1915,7 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
                 <div style={{flex:1}}>
                   <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                     <span style={{fontSize:12,fontWeight:500,color:"#374151"}}>{u.name||"-"}</span>
-                    <span style={{fontSize:12,color:ACOLOR[h.action]||"#9CA3AF",fontWeight:500}}>{ALABEL[h.action]||h.action}</span>
+                    <span style={{fontSize:12,color:h.proxyFor?"#C2410C":(ACOLOR[h.action]||"#9CA3AF"),fontWeight:500}}>{fmtHistAction(h)}</span>
                     <span style={{fontSize:11,color:"#9CA3AF",marginLeft:"auto",whiteSpace:"nowrap"}}>
                       {h.at ? new Date(h.at).toLocaleDateString("th-TH",{day:"2-digit",month:"short",year:"2-digit"})+" "+new Date(h.at).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"}) : "-"}
                     </span>
@@ -1958,7 +1956,7 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
               </button>
             )}
 
-            {canApprove&&(
+            {canApproveOwn&&(
               <>
                 <button onClick={()=>setModal({type:"approve",memo})} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ อนุมัติ</button>
                 <button onClick={()=>setModal({type:"reject",memo})}  style={{padding:11,background:"#FFF1F1",color:"#991B1B",border:"1px solid #FECACA",borderRadius:6,fontSize:13,cursor:"pointer"}}>✕ ปฏิเสธ</button>
@@ -1999,6 +1997,28 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
                   </div>
                 )}
               </>
+            )}
+            {/* Proxy approve for superadmin */}
+            {canApproveProxy&&(
+              <div style={{background:"#FFF7ED",border:"1px solid #FED7AA",borderRadius:8,padding:12}}>
+                <div style={{fontSize:12,fontWeight:600,color:"#C2410C",marginBottom:8}}>⚡ อนุมัติแทน (Super Admin)</div>
+                <div style={{fontSize:11,color:"#92400E",marginBottom:10}}>
+                  เลือกผู้อนุมัติที่ต้องการอนุมัติแทน:
+                </div>
+                {(activeLevel?.approvers||[]).filter(ap=>ap.status==="pending").map((ap,ai)=>{
+                  const u=users.find(x=>x.id===ap.userId)||{};
+                  const nm=ap.name||u.name||ap.email||"-";
+                  return (
+                    <button key={ai}
+                      onClick={()=>setModal({type:"approve",memo,proxyFor:{userId:ap.userId,email:ap.email,name:nm}})}
+                      style={{width:"100%",padding:"8px 12px",marginBottom:4,background:"#fff",border:"1px solid #FED7AA",borderRadius:6,fontSize:12,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:14}}>👤</span>
+                      <span style={{flex:1}}>{nm}</span>
+                      <span style={{fontSize:10,color:"#C2410C",background:"#FFF7ED",padding:"2px 7px",borderRadius:4,border:"1px solid #FED7AA"}}>อนุมัติแทน</span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
             {isCreator&&memo.status==="pending"&&can(curUser.role,"recall")&&<button onClick={onRecall} style={{padding:11,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:13,cursor:"pointer"}}>↩ เรียกคืน Memo</button>}
             {isCreator&&(memo.status==="draft"||memo.status==="recalled")&&<button onClick={onEdit} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✎ แก้ไข Memo</button>}
@@ -2747,7 +2767,7 @@ export default function EMemo() {
   };
 
   // [3] Level-based approval ─────────────────────────────────────────────────
-  const approveMemo = async (memo, comment, drawnSig) => {
+  const approveMemo = async (memo, comment, drawnSig, proxyForUser=null) => {
     const now     = new Date().toISOString();
     const lvIdx   = memo.currentLevel||0;
     const sigToUse = drawnSig || curUser.signature || null;
@@ -2756,8 +2776,13 @@ export default function EMemo() {
       return {...lv, approvers:(lv.approvers||[]).map(ap=>{
         const matchUser  = ap.userId&&ap.userId===curUser.id;
         const matchEmail = ap.email&&ap.email===curUser.email;
-        if((matchUser||matchEmail)&&ap.status==="pending")
-          return {...ap, status:"approved", comment, actionAt:now, signature:sigToUse};
+        // Proxy: superadmin approves on behalf of a specific pending approver
+        const matchProxy = proxyForUser && ap.status==="pending" &&
+          (ap.userId===proxyForUser.userId || ap.email===proxyForUser.email);
+        if((matchUser||matchEmail||matchProxy)&&ap.status==="pending")
+          return {...ap, status:"approved", comment, actionAt:now, signature:sigToUse,
+            proxyBy: proxyForUser ? curUser.id : null,
+            proxyByName: proxyForUser ? curUser.name : null};
         return ap;
       })};
     });
@@ -2767,8 +2792,13 @@ export default function EMemo() {
     const allDone   = lvDone && nextLevel>=levels.length;
     const newStatus = allDone?"approved":"pending";
     const newLvIdx  = lvDone&&!allDone ? nextLevel : lvIdx;
+    const histEntry = proxyForUser
+      ? { action:"approved", by:curUser.id, at:now, comment,
+          proxyFor: proxyForUser.name||proxyForUser.email,
+          label: `อนุมัติแทน ${proxyForUser.name||proxyForUser.email}` }
+      : { action:"approved", by:curUser.id, at:now, comment };
     const patch     = { workflowLevels:levels, currentLevel:newLvIdx, status:newStatus,
-      history:[...(memo.history||[]),{action:"approved",by:curUser.id,at:now,comment}] };
+      history:[...(memo.history||[]), histEntry] };
     if(allDone&&!memo.docNo){ const docNo=await assignDocNo(memo,users,docCounters); patch.docNo=docNo; }
     await patchMemo(memo.id,patch);
     setModal(null); setSelId(memo.id);
@@ -2880,7 +2910,13 @@ export default function EMemo() {
       `}</style>
       <Toast t={toast}/>
       {syncing&&<div className="syncing-ind" style={{position:"fixed",bottom:16,left:216,background:"#FFFBEB",color:"#B45309",border:"1px solid #FCD34D",borderRadius:6,padding:"4px 10px",fontSize:11,zIndex:100}}>⟳ กำลังบันทึก...</div>}
-      {modal&&<ActionModal modal={modal} onClose={()=>setModal(null)} onApprove={(c,sig)=>approveMemo(modal.memo,c,sig)} onReject={c=>rejectMemo(modal.memo,c)} curUser={curUser}/>}
+      {modal&&<ActionModal modal={modal} onClose={()=>setModal(null)}
+        onApprove={(c,sig)=>approveMemo(modal.memo,c,sig,modal.proxyFor||null)}
+        onReject={c=>rejectMemo(modal.memo,c)}
+        curUser={curUser}
+        isProxy={!!modal.proxyFor}
+        proxyFor={modal.proxyFor?.name||modal.proxyFor?.email||null}
+      />}
       {showProfile&&<ProfileModal curUser={curUser} onClose={()=>setShowProfile(false)} showToast={showToast}/>}
       {showTplManager&&can(curUser.role,"settings")&&<DocxTemplateManager templates={pdfTemplates} onSave={async tpls=>{await writePdfTemplates(tpls);showToast("บันทึก Template แล้ว");setShowTplManager(false);}} onClose={()=>setShowTplManager(false)}/>}
       {showSigZones&&editMemo&&<SignatureZonesModal memo={editMemo} users={users} curUser={curUser} onSave={saveSigZones} onClose={()=>setShowSigZones(false)}/>}
