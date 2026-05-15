@@ -1756,6 +1756,186 @@ function AiWriteModal({ title, category, onUse, onClose }) {
   );
 }
 
+function AiFeatureUpdateModal({ onClose }) {
+  const [tab, setTab] = useState("write");
+  const steps = {
+    write: [
+      { icon: "1", text: 'คลิก “+ สร้าง Memo ใหม่” เพื่อเปิดหน้าสร้าง Memo' },
+      { icon: "2", text: "กรอกชื่อเรื่อง และเลือกหมวดหมู่ก่อน (AI จะใช้ข้อมูลนี้)" },
+      { icon: "3", text: "กดปุ่ม ✨ AI ช่วยเขียน ที่อยู่เหนือช่องเนื้อหา" },
+      { icon: "4", text: "เลือกรูปแบบการเขียน เช่น ทางการ / กระชับ / ขออนุมัติ" },
+      { icon: "5", text: "พิมพ์บรีฟสั้นๆ ว่าต้องการเขียนเรื่องอะไร แล้วกด ✨ สร้างเนื้อหา" },
+      { icon: "6", text: "ตรวจสอบผลลัพธ์ แล้วกด ✓ ใช้เนื้อหานี้ หรือ 🔄 สร้างใหม่" },
+    ],
+    summarize: [
+      { icon: "1", text: "เปิด Memo ที่ต้องการอ่านโดยคลิกเข้าไปในรายการ" },
+      { icon: "2", text: "เลื่อนลงมาใต้เนื้อหา Memo จะเห็นปุ่ม ✨ AI สรุปเอกสาร" },
+      { icon: "3", text: "คลิกปุ่มนั้น รอ 2-3 วินาที AI จะวิเคราะห์เนื้อหาให้" },
+      { icon: "4", text: "อ่านสาระสำคัญ และ Key Points ที่ AI สรุปไว้" },
+      { icon: "5", text: "กด ✕ ปิด AI สรุป เพื่อซ่อนผลลัพธ์เมื่อไม่ต้องการ" },
+    ],
+  };
+  const styles = [
+    { key:"formal",   icon:"🏛", label:"ทางการ",    desc:"เหมาะกับหนังสือราชการ และเอกสารสำคัญ" },
+    { key:"concise",  icon:"⚡", label:"กระชับ",    desc:"สั้น ตรงประเด็น อ่านง่าย ไม่เยิ่นเย้อ" },
+    { key:"detailed", icon:"📋", label:"ละเอียด",   desc:"อธิบายครบถ้วน มีเหตุผลและรายละเอียด" },
+    { key:"approval", icon:"✅", label:"ขออนุมัติ", desc:"เน้น proposal ประโยชน์ และ ROI" },
+    { key:"circular", icon:"📢", label:"แจ้งเวียน", desc:"แจ้งให้ทราบทั่วกัน รูปแบบประกาศ" },
+    { key:"report",   icon:"📊", label:"รายงานผล",  desc:"รายงานความคืบหน้าและผลการดำเนินงาน" },
+  ];
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:680,maxHeight:"92vh",overflow:"auto",boxShadow:"0 24px 80px rgba(0,0,0,.28)",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
+        {/* Header */}
+        <div style={{background:"linear-gradient(135deg,#1E1E2E 0%,#2D1B69 100%)",padding:"24px 28px 20px",borderRadius:"16px 16px 0 0",position:"relative"}}>
+          <div style={{position:"absolute",top:14,right:14}}>
+            <button onClick={onClose} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",width:30,height:30,borderRadius:"50%",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+            <div style={{width:44,height:44,background:GOLD,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>✨</div>
+            <div>
+              <div style={{fontSize:9,fontWeight:600,color:"rgba(255,255,255,.5)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:3}}>อัปเดตฟีเจอร์ใหม่</div>
+              <div style={{fontSize:20,fontWeight:700,color:"#fff",lineHeight:1.2}}>AI ช่วยเขียน &amp; สรุป Memo</div>
+            </div>
+          </div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,.65)",lineHeight:1.6,maxWidth:480}}>
+            ระบบ E-Memo ได้เพิ่มฟีเจอร์ปัญญาประดิษฐ์ (AI) เพื่อช่วยให้การเขียนและอ่าน Memo ง่ายและรวดเร็วยิ่งขึ้น
+          </div>
+        </div>
+
+        {/* Tab Switcher */}
+        <div style={{display:"flex",borderBottom:"1px solid #F3F4F6",background:"#FAFAFA"}}>
+          {[
+            { k:"write",     label:"✨ AI ช่วยเขียน",   badge:"ใหม่" },
+            { k:"summarize", label:"✨ AI สรุปเอกสาร",  badge:"ใหม่" },
+          ].map(t=>(
+            <button key={t.k} onClick={()=>setTab(t.k)}
+              style={{flex:1,padding:"14px 16px",background:"transparent",border:"none",borderBottom:tab===t.k?`3px solid #7C3AED`:"3px solid transparent",
+                color:tab===t.k?"#7C3AED":"#6B7280",fontWeight:tab===t.k?700:400,fontSize:13,cursor:"pointer",
+                fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6,transition:"all .15s"}}>
+              {t.label}
+              <span style={{background:tab===t.k?"#7C3AED":"#E5E7EB",color:tab===t.k?"#fff":"#9CA3AF",borderRadius:10,fontSize:9,padding:"1px 6px",fontWeight:700}}>{t.badge}</span>
+            </button>
+          ))}
+        </div>
+
+        <div style={{padding:"22px 28px"}}>
+          {tab==="write" && (
+            <div>
+              {/* Feature Card */}
+              <div style={{background:"#F5F3FF",border:"1px solid #DDD6FE",borderRadius:10,padding:"14px 18px",marginBottom:18,display:"flex",gap:12,alignItems:"flex-start"}}>
+                <div style={{fontSize:28,flexShrink:0,marginTop:2}}>✍️</div>
+                <div>
+                  <div style={{fontSize:14,fontWeight:700,color:"#5B21B6",marginBottom:4}}>AI ช่วยเขียน Memo</div>
+                  <div style={{fontSize:12,color:"#6B7280",lineHeight:1.7}}>
+                    เพียงบอกหัวข้อและวัตถุประสงค์คร่าวๆ AI จะสร้างเนื้อหา Memo ที่สมบูรณ์ให้ทันที
+                    พร้อมแนะนำชื่อเรื่องที่เหมาะสม
+                  </div>
+                </div>
+              </div>
+
+              {/* Step by step */}
+              <div style={{fontSize:12,fontWeight:700,color:"#374151",marginBottom:10}}>วิธีใช้งาน</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
+                {steps.write.map((s,i)=>(
+                  <div key={i} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                    <div style={{width:22,height:22,background:"#7C3AED",color:"#fff",borderRadius:"50%",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{s.icon}</div>
+                    <div style={{fontSize:12,color:"#374151",lineHeight:1.6,paddingTop:2}}>{s.text}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Writing Styles */}
+              <div style={{fontSize:12,fontWeight:700,color:"#374151",marginBottom:8}}>รูปแบบการเขียนที่รองรับ</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:18}}>
+                {styles.map(s=>(
+                  <div key={s.key} style={{background:"#FAFAFA",border:"1px solid #E5E7EB",borderRadius:8,padding:"10px 12px"}}>
+                    <div style={{fontSize:18,marginBottom:4}}>{s.icon}</div>
+                    <div style={{fontSize:12,fontWeight:600,color:"#374151",marginBottom:2}}>{s.label}</div>
+                    <div style={{fontSize:10,color:"#9CA3AF",lineHeight:1.4}}>{s.desc}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Tip */}
+              <div style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"10px 14px",display:"flex",gap:8,alignItems:"flex-start"}}>
+                <span style={{fontSize:14,flexShrink:0}}>💡</span>
+                <div style={{fontSize:11,color:"#92400E",lineHeight:1.6}}>
+                  <strong>เคล็ดลับ:</strong> กรอกชื่อเรื่องและเลือกหมวดหมู่ก่อนกด AI จะได้ผลลัพธ์ที่ตรงกับความต้องการมากขึ้น
+                  หากผลลัพธ์ยังไม่ถูกใจ สามารถกด 🔄 สร้างใหม่ได้เลย
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tab==="summarize" && (
+            <div>
+              {/* Feature Card */}
+              <div style={{background:"#F5F3FF",border:"1px solid #DDD6FE",borderRadius:10,padding:"14px 18px",marginBottom:18,display:"flex",gap:12,alignItems:"flex-start"}}>
+                <div style={{fontSize:28,flexShrink:0,marginTop:2}}>📖</div>
+                <div>
+                  <div style={{fontSize:14,fontWeight:700,color:"#5B21B6",marginBottom:4}}>AI สรุปเอกสาร</div>
+                  <div style={{fontSize:12,color:"#6B7280",lineHeight:1.7}}>
+                    เปิด Memo ยาวๆ แล้วไม่อยากอ่านทั้งหมด? AI จะอ่านแทนและสรุปสาระสำคัญ
+                    พร้อม Key Points ที่ต้องรู้ให้ภายในไม่กี่วินาที
+                  </div>
+                </div>
+              </div>
+
+              {/* Step by step */}
+              <div style={{fontSize:12,fontWeight:700,color:"#374151",marginBottom:10}}>วิธีใช้งาน</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
+                {steps.summarize.map((s,i)=>(
+                  <div key={i} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                    <div style={{width:22,height:22,background:"#7C3AED",color:"#fff",borderRadius:"50%",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{s.icon}</div>
+                    <div style={{fontSize:12,color:"#374151",lineHeight:1.6,paddingTop:2}}>{s.text}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Output preview */}
+              <div style={{fontSize:12,fontWeight:700,color:"#374151",marginBottom:8}}>ผลลัพธ์ที่ได้จาก AI สรุป</div>
+              <div style={{border:"1px solid #DDD6FE",borderRadius:8,overflow:"hidden",marginBottom:18}}>
+                <div style={{background:"#7C3AED",color:"#fff",padding:"8px 14px",fontSize:11,fontWeight:600}}>✨ AI สรุปเอกสาร (ตัวอย่าง)</div>
+                <div style={{padding:"12px 14px"}}>
+                  <div style={{marginBottom:10}}>
+                    <div style={{fontSize:10,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>สาระสำคัญ</div>
+                    <div style={{fontSize:12,color:"#374151",lineHeight:1.6,fontStyle:"italic"}}>เอกสารนี้มีวัตถุประสงค์เพื่อ... [AI จะเขียนให้อัตโนมัติ]</div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:.5,marginBottom:6}}>ประเด็นสำคัญ</div>
+                    {["• ประเด็นที่ 1 ที่ต้องทราบ","• ประเด็นที่ 2 ที่ต้องทราบ","• ประเด็นที่ 3 ที่ต้องทราบ"].map((p,i)=>(
+                      <div key={i} style={{fontSize:12,color:"#374151",padding:"3px 0",lineHeight:1.5,fontStyle:"italic"}}>{p}</div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tip */}
+              <div style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"10px 14px",display:"flex",gap:8,alignItems:"flex-start"}}>
+                <span style={{fontSize:14,flexShrink:0}}>💡</span>
+                <div style={{fontSize:11,color:"#92400E",lineHeight:1.6}}>
+                  <strong>เคล็ดลับ:</strong> ฟีเจอร์นี้เหมาะที่สุดกับ Memo ที่มีเนื้อหายาว หรือเมื่อต้องการอ่านภาพรวมก่อนอนุมัติ
+                  ผลลัพธ์จะแม่นยำขึ้นเมื่อ Memo มีเนื้อหาที่ชัดเจน
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{padding:"16px 28px 22px",borderTop:"1px solid #F3F4F6",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+          <div style={{fontSize:11,color:"#9CA3AF"}}>ฟีเจอร์นี้ใช้ได้กับผู้ใช้ทุกระดับ — อัปเดตเมื่อ พ.ค. 2568</div>
+          <button onClick={onClose}
+            style={{padding:"10px 28px",background:GOLD,color:BLACK,border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",letterSpacing:.3}}>
+            เข้าใจแล้ว เริ่มใช้งาน →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, routeTemplates, onSubmit, onCancel, isRecall, onOpenSigZones }) {
   const fileRef      = useRef();
   const memoFileRef  = useRef();
@@ -2821,8 +3001,15 @@ export default function EMemo() {
   const [showRouteManager,setShowRouteManager]= useState(false);
   const [showProfile,     setShowProfile]     = useState(false);
   const [showSigZones,    setShowSigZones]    = useState(false);
+  const [showAiUpdate,    setShowAiUpdate]    = useState(false);
 
   useEffect(()=>{ const u=onAuthStateChanged(auth,u=>setAuthUser(u||null)); return()=>u(); },[]);
+  useEffect(()=>{
+    if(!localStorage.getItem("ememo_ai_update_v1_seen")){
+      const t=setTimeout(()=>setShowAiUpdate(true),800);
+      return()=>clearTimeout(t);
+    }
+  },[]);
   useEffect(()=>{ if(!authUser)return; const u=onValue(ref(db,DATA_PATH),snap=>setData(snap.val()||{users:{},memos:{},notifyConfig:{}})); return()=>u(); },[authUser]);
 
   // ── History API (must be before early returns — Rules of Hooks) ──────────
@@ -3087,6 +3274,7 @@ export default function EMemo() {
         isProxy={!!modal.proxyFor}
         proxyFor={modal.proxyFor?.name||modal.proxyFor?.email||null}
       />}
+      {showAiUpdate&&<AiFeatureUpdateModal onClose={()=>{ setShowAiUpdate(false); localStorage.setItem("ememo_ai_update_v1_seen","1"); }}/>}
       {showProfile&&<ProfileModal curUser={curUser} onClose={()=>setShowProfile(false)} showToast={showToast}/>}
       {showTplManager&&can(curUser.role,"settings")&&<DocxTemplateManager templates={pdfTemplates} onSave={async tpls=>{await writePdfTemplates(tpls);showToast("บันทึก Template แล้ว");setShowTplManager(false);}} onClose={()=>setShowTplManager(false)}/>}
       {showSigZones&&editMemo&&<SignatureZonesModal memo={editMemo} users={users} curUser={curUser} onSave={saveSigZones} onClose={()=>setShowSigZones(false)}/>}
