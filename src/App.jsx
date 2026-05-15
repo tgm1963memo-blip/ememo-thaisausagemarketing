@@ -1535,11 +1535,19 @@ function RichEditor({ value, onChange }) {
   // Init: render HTML content (value may contain <table> from paste)
   useEffect(() => {
     if (!editorRef.current) return;
-    // value is stored as HTML internally
     if (editorRef.current.innerHTML !== (value||"")) {
       editorRef.current.innerHTML = value || "";
     }
   }, []); // only on mount
+
+  // Sync external value changes (e.g. AI content injection) when editor is not focused
+  useEffect(() => {
+    if (!editorRef.current) return;
+    if (document.activeElement === editorRef.current) return;
+    if (editorRef.current.innerHTML !== (value||"")) {
+      editorRef.current.innerHTML = value || "";
+    }
+  }, [value]);
 
   // Save HTML (preserves table structure)
   const handleInput = () => {
