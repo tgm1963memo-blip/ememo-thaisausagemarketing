@@ -1655,10 +1655,69 @@ function RichEditor({ value, onChange }) {
   );
 }
 
+function AiWriteModal({ title, category, onUse, onClose }) {
+  const [brief,   setBrief]   = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result,  setResult]  = useState("");
+  const [err,     setErr]     = useState("");
+
+  const generate = async () => {
+    if (!brief.trim()) return;
+    setLoading(true); setErr(""); setResult("");
+    try {
+      const res = await fetch(`${API_BASE}/api/ai-assist`, {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ mode:"write", title, category, brief }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาด");
+      setResult(data.content);
+    } catch(e) { setErr(e.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"#fff",borderRadius:12,padding:24,width:"100%",maxWidth:600,maxHeight:"82vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.22)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
+          <span style={{fontSize:20}}>✨</span>
+          <div style={{fontSize:15,fontWeight:600,color:"#111"}}>AI ช่วยเขียน Memo</div>
+          <button onClick={onClose} style={{marginLeft:"auto",background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#9CA3AF",lineHeight:1,padding:0}}>✕</button>
+        </div>
+        <div style={{fontSize:12,color:"#6B7280",marginBottom:12}}>
+          ชื่อเรื่อง: <b style={{color:"#111"}}>{title||"(ยังไม่ได้กรอก)"}</b> · หมวด: <b style={{color:"#111"}}>{category}</b>
+        </div>
+        <label style={{fontSize:11,fontWeight:600,color:"#6B7280",display:"block",marginBottom:4}}>บรีฟหัวข้อ / วัตถุประสงค์ *</label>
+        <textarea value={brief} onChange={e=>setBrief(e.target.value)} rows={4}
+          placeholder="เช่น ขออนุมัติซื้อคอมพิวเตอร์ 5 เครื่อง งบ 150,000 บาท เพื่อทดแทนเครื่องเก่าที่ชำรุด..."
+          style={{width:"100%",padding:"9px 10px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:13,fontFamily:"inherit",resize:"vertical",boxSizing:"border-box"}}
+        />
+        <button onClick={generate} disabled={loading||!brief.trim()}
+          style={{marginTop:10,padding:"9px 20px",background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:loading||!brief.trim()?"not-allowed":"pointer",opacity:loading||!brief.trim()?0.6:1}}>
+          {loading?"⏳ กำลังสร้าง...":"✨ สร้างเนื้อหา"}
+        </button>
+        {err&&<div style={{marginTop:10,fontSize:12,color:"#DC2626",background:"#FFF1F1",padding:"8px 10px",borderRadius:6}}>{err}</div>}
+        {result&&(
+          <div style={{marginTop:16}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#6B7280",textTransform:"uppercase",letterSpacing:.4,marginBottom:6}}>ผลลัพธ์จาก AI</div>
+            <div style={{border:"1px solid #DDD6FE",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.7,color:"#374151",background:"#FAFAFE",maxHeight:280,overflow:"auto"}}
+              dangerouslySetInnerHTML={{__html:result}}/>
+            <div style={{display:"flex",gap:8,marginTop:10}}>
+              <button onClick={()=>{onUse(result);onClose();}} style={{padding:"8px 20px",background:"#059669",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>✓ ใช้เนื้อหานี้</button>
+              <button onClick={generate} disabled={loading} style={{padding:"8px 16px",background:"#F9FAFB",color:"#374151",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>🔄 สร้างใหม่</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, routeTemplates, onSubmit, onCancel, isRecall, onOpenSigZones }) {
   const fileRef      = useRef();
   const memoFileRef  = useRef();
   const [showPreview, setShowPreview] = useState(false);
+  const [showAiWrite, setShowAiWrite] = useState(false);
   const [memoMode,    setMemoMode]    = useState(editMemo.uploadedFile ? "upload" : "type"); // "type"|"upload"
   const update   = (k,v) => setEditMemo(p=>({...p,[k]:v}));
   const setNotify= fn    => setEditMemo(p=>({...p,notify:typeof fn==="function"?fn(p.notify||{}):fn}));
@@ -1699,6 +1758,13 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, route
           />
         </ErrorBoundary>
       )}
+      {showAiWrite && (
+        <AiWriteModal
+          title={editMemo.title} category={editMemo.category||"ทั่วไป"}
+          onUse={html=>update("content",html)}
+          onClose={()=>setShowAiWrite(false)}
+        />
+      )}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
         <button onClick={onCancel} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,color:"#9CA3AF",padding:0,lineHeight:1}}>←</button>
         <div style={{fontSize:18,fontWeight:600,color:"#111"}}>{editMemo.id?(isRecall?"แก้ไข Memo (เรียกคืน)":"แก้ไข Memo"):"สร้าง Memo ใหม่"}</div>
@@ -1720,9 +1786,13 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, route
             </div>
 
             {memoMode==="type" ? (
-              <Field label="เนื้อหา">
+              <div style={{marginBottom:10}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+                  <label style={{fontSize:11,fontWeight:600,color:"#6B7280"}}>เนื้อหา</label>
+                  <button onClick={()=>setShowAiWrite(true)} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 11px",background:"#F5F3FF",color:"#7C3AED",border:"1px solid #DDD6FE",borderRadius:5,fontSize:11,fontWeight:600,cursor:"pointer"}}>✨ AI ช่วยเขียน</button>
+                </div>
                 <RichEditor value={editMemo.content||""} onChange={v=>update("content",v)}/>
-              </Field>
+              </div>
             ) : (
               <div>
                 <input ref={memoFileRef} type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" style={{display:"none"}} onChange={handleMemoFile}/>
@@ -1805,7 +1875,24 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
   const [showAddLevel, setShowAddLevel] = useState(false);
   const [newLvUsers,   setNewLvUsers]   = useState([]);
   const [newLvMode,    setNewLvMode]    = useState("all");
+  const [aiSummary,    setAiSummary]    = useState(null);
+  const [aiSumLoading, setAiSumLoading] = useState(false);
   const isCreator = memo.createdBy===curUser.id;
+
+  const handleAiSummarize = async () => {
+    if (aiSummary) { setAiSummary(null); return; }
+    setAiSumLoading(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/ai-assist`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ mode:"summarize", title:memo.title, content:memo.content||"" }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "เกิดข้อผิดพลาด");
+      setAiSummary(d);
+    } catch(e) { alert("AI สรุปไม่สำเร็จ: "+e.message); }
+    finally { setAiSumLoading(false); }
+  };
 
   // [3][7] find if current user can approve in the active level
   const activeLevel    = getActiveLevel(memo);
@@ -1882,6 +1969,46 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
               </div>
             )}
                 <div style={{fontSize:14,lineHeight:1.7,color:"#374141"}} dangerouslySetInnerHTML={{__html: memo.content||""}}/>
+            {/* AI Summary */}
+            <div style={{marginTop:14,borderTop:"1px solid #F3F4F6",paddingTop:10}}>
+              <button onClick={handleAiSummarize} disabled={aiSumLoading}
+                style={{display:"flex",alignItems:"center",gap:5,padding:"5px 13px",background:aiSummary?"#F9FAFB":"#F5F3FF",color:aiSummary?"#9CA3AF":"#7C3AED",border:`1px solid ${aiSummary?"#E5E7EB":"#DDD6FE"}`,borderRadius:5,fontSize:11,fontWeight:600,cursor:aiSumLoading?"not-allowed":"pointer",opacity:aiSumLoading?0.7:1}}>
+                {aiSumLoading?"⏳ กำลังวิเคราะห์...":(aiSummary?"✕ ปิด AI สรุป":"✨ AI สรุปเอกสาร")}
+              </button>
+              {aiSummary&&(
+                <div style={{marginTop:10,border:"1px solid #DDD6FE",borderRadius:8,overflow:"hidden"}}>
+                  <div style={{background:"#7C3AED",color:"#fff",padding:"8px 14px",fontSize:12,fontWeight:600}}>✨ AI สรุปเอกสาร</div>
+                  <div style={{padding:"12px 14px",fontSize:13,lineHeight:1.7}}>
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:10,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>สาระสำคัญ</div>
+                      <div style={{color:"#374151"}}>{aiSummary.summary}</div>
+                    </div>
+                    {aiSummary.keyPoints?.length>0&&(
+                      <div style={{marginBottom:10}}>
+                        <div style={{fontSize:10,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>ประเด็นสำคัญ</div>
+                        <ul style={{margin:0,paddingLeft:18,color:"#374151"}}>
+                          {aiSummary.keyPoints.map((p,i)=><li key={i} style={{marginBottom:2}}>{p}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {aiSummary.budget&&(
+                      <div style={{marginBottom:10,background:"#FFFBEB",border:"1px solid #FCD34D",borderRadius:6,padding:"8px 12px"}}>
+                        <div style={{fontSize:10,fontWeight:700,color:"#B45309",textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>💰 งบประมาณ</div>
+                        <div style={{color:"#92400E"}}>{aiSummary.budget}</div>
+                      </div>
+                    )}
+                    {aiSummary.risks?.length>0&&(
+                      <div style={{background:"#FFF1F1",border:"1px solid #FECACA",borderRadius:6,padding:"8px 12px"}}>
+                        <div style={{fontSize:10,fontWeight:700,color:"#991B1B",textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>⚠ ความเสี่ยง</div>
+                        <ul style={{margin:0,paddingLeft:18,color:"#7F1D1D"}}>
+                          {aiSummary.risks.map((r,i)=><li key={i} style={{marginBottom:2}}>{r}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </Section>
           <Section title="เอกสารแนบ" extra={(isCreator||canApprove)&&<><button onClick={()=>fileRef.current?.click()} style={BTN_GRAY}>+ แนบไฟล์</button><input ref={fileRef} type="file" style={{display:"none"}} onChange={handleFile}/></>}>
             {!(memo.attachments||[]).length?<div style={{fontSize:12,color:"#9CA3AF",textAlign:"center"}}>ไม่มีเอกสารแนบ</div>
