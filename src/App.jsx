@@ -2988,6 +2988,37 @@ function RouteListView({ routeTemplates, curUser, onManage }) {
   );
 }
 
+function RecallSmartModal({ memo, onRecallAndEdit, onRecallOnly, onCancel }) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999,padding:16}}>
+      <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:14,padding:24,width:380,maxWidth:"100%",boxShadow:"0 20px 60px rgba(0,0,0,.25)",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <span style={{fontSize:26,lineHeight:1}}>🤖</span>
+          <div>
+            <div style={{fontSize:15,fontWeight:700,color:"#111"}}>ต้องการแก้ไขข้อความด้วยไหม?</div>
+            <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>ลดการสร้างเอกสารใหม่ทุกครั้ง</div>
+          </div>
+        </div>
+        <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:8,padding:"10px 12px",marginBottom:16,fontSize:12,color:"#1E40AF"}}>
+          <strong style={{display:"block",marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{memo.title}</strong>
+          ระบบตรวจพบว่าคุณกำลังเรียกคืน Memo — หากต้องการแก้ไขเนื้อหา สามารถเปิดหน้าแก้ไขได้ทันทีโดยไม่ต้องสร้างเอกสารใหม่
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <button onClick={onRecallAndEdit} style={{padding:11,background:"#1D4ED8",color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+            ✎ เรียกคืนและแก้ไขทันที
+          </button>
+          <button onClick={onRecallOnly} style={{padding:10,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:8,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
+            ↩ เรียกคืนเท่านั้น
+          </button>
+          <button onClick={onCancel} style={{padding:10,background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:8,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+            ยกเลิก
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function EMemo() {
   const [authUser,      setAuthUser]      = useState(undefined);
   const [data,          setData]          = useState(null);
@@ -2995,6 +3026,7 @@ export default function EMemo() {
   const [selId,         setSelId]         = useState(null);
   const [editMemo,      setEditMemo]      = useState(null);
   const [modal,         setModal]         = useState(null);
+  const [recallConfirm, setRecallConfirm] = useState(null);
   const [toast,         setToast]         = useState(null);
   const [syncing,       setSyncing]       = useState(false);
   const [showTplManager,  setShowTplManager]  = useState(false);
@@ -3107,9 +3139,11 @@ export default function EMemo() {
     setEditMemo(null); showToast(isDraft?"บันทึกร่างแล้ว":"ส่ง Memo เพื่ออนุมัติแล้ว"); setView("myMemos");
   };
 
-  const recallMemo = async memo => {
+  const recallMemo = (memo) => setRecallConfirm({ memo });
+
+  const doRecall = async (memo, andEdit = false) => {
+    setRecallConfirm(null);
     const now = new Date().toISOString();
-    // เรียกคืน: ล้างลายเซ็นและสถานะการอนุมัติทั้งหมด
     const clearedLevels = (memo.workflowLevels||[]).map(lv => ({
       ...lv,
       approvers: (lv.approvers||[]).map(ap => ({
@@ -3120,7 +3154,11 @@ export default function EMemo() {
       status:"recalled", currentLevel:0, workflowLevels:clearedLevels,
       history:[...(memo.history||[]),{action:"recalled",by:curUser.id,at:now,comment:"เรียกคืน Memo"}],
     });
-    showToast("เรียกคืน Memo แล้ว — ลายเซ็นถูกล้างแล้ว");
+    if (andEdit) {
+      startEdit({ ...memo, status:"recalled", workflowLevels:clearedLevels, currentLevel:0 });
+    } else {
+      showToast("เรียกคืน Memo แล้ว — ลายเซ็นถูกล้างแล้ว");
+    }
   };
 
   // [3] Level-based approval ─────────────────────────────────────────────────
@@ -3274,6 +3312,7 @@ export default function EMemo() {
         isProxy={!!modal.proxyFor}
         proxyFor={modal.proxyFor?.name||modal.proxyFor?.email||null}
       />}
+      {recallConfirm&&<RecallSmartModal memo={recallConfirm.memo} onRecallAndEdit={()=>doRecall(recallConfirm.memo,true)} onRecallOnly={()=>doRecall(recallConfirm.memo,false)} onCancel={()=>setRecallConfirm(null)}/>}
       {showAiUpdate&&<AiFeatureUpdateModal onClose={()=>{ setShowAiUpdate(false); localStorage.setItem("ememo_ai_update_v1_seen","1"); }}/>}
       {showProfile&&<ProfileModal curUser={curUser} onClose={()=>setShowProfile(false)} showToast={showToast}/>}
       {showTplManager&&can(curUser.role,"settings")&&<DocxTemplateManager templates={pdfTemplates} onSave={async tpls=>{await writePdfTemplates(tpls);showToast("บันทึก Template แล้ว");setShowTplManager(false);}} onClose={()=>setShowTplManager(false)}/>}
