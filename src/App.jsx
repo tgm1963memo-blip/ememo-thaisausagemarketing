@@ -1668,12 +1668,12 @@ function AiWriteModal({ title, category, onUse, onClose }) {
   const [brief,   setBrief]   = useState("");
   const [style,   setStyle]   = useState("formal");
   const [loading, setLoading] = useState(false);
-  const [result,  setResult]  = useState("");
+  const [result,  setResult]  = useState(null);
   const [err,     setErr]     = useState("");
 
   const generate = async () => {
     if (!brief.trim()) return;
-    setLoading(true); setErr(""); setResult("");
+    setLoading(true); setErr(""); setResult(null);
     try {
       const res = await fetch(`${API_BASE}/api/ai-assist`, {
         method: "POST", headers: {"Content-Type":"application/json"},
@@ -1681,7 +1681,7 @@ function AiWriteModal({ title, category, onUse, onClose }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาด");
-      setResult(data.content);
+      setResult({ content: data.content, suggestedTitle: data.suggestedTitle || "" });
     } catch(e) { setErr(e.message); }
     finally { setLoading(false); }
   };
@@ -1729,10 +1729,16 @@ function AiWriteModal({ title, category, onUse, onClose }) {
         {result&&(
           <div style={{marginTop:16}}>
             <div style={{fontSize:11,fontWeight:600,color:"#6B7280",textTransform:"uppercase",letterSpacing:.4,marginBottom:6}}>ผลลัพธ์จาก AI</div>
+            {result.suggestedTitle&&(
+              <div style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",marginBottom:8,fontSize:13}}>
+                <span style={{color:"#92400E",fontWeight:600,fontSize:11}}>ชื่อเรื่องที่แนะนำ: </span>
+                <span style={{color:"#111"}}>{result.suggestedTitle}</span>
+              </div>
+            )}
             <div style={{border:"1px solid #DDD6FE",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.7,color:"#374151",background:"#FAFAFE",maxHeight:260,overflow:"auto"}}
-              dangerouslySetInnerHTML={{__html:result}}/>
+              dangerouslySetInnerHTML={{__html:result.content}}/>
             <div style={{display:"flex",gap:8,marginTop:10}}>
-              <button onClick={()=>{onUse(result);onClose();}} style={{padding:"8px 20px",background:"#059669",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>✓ ใช้เนื้อหานี้</button>
+              <button onClick={()=>{onUse(result.content, result.suggestedTitle);onClose();}} style={{padding:"8px 20px",background:"#059669",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>✓ ใช้เนื้อหานี้</button>
               <button onClick={generate} disabled={loading} style={{padding:"8px 16px",background:"#F9FAFB",color:"#374151",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>🔄 สร้างใหม่</button>
             </div>
           </div>
@@ -1790,7 +1796,7 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, route
       {showAiWrite && (
         <AiWriteModal
           title={editMemo.title} category={editMemo.category||"ทั่วไป"}
-          onUse={html=>update("content",html)}
+          onUse={(html, suggestedTitle)=>{ update("content",html); if(suggestedTitle) update("title",suggestedTitle); }}
           onClose={()=>setShowAiWrite(false)}
         />
       )}

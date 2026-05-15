@@ -18,7 +18,7 @@ export default async function handler(req, res) {
   let systemPrompt, userMessage;
 
   if (mode === "write") {
-    systemPrompt = `คุณเป็นผู้ช่วยเขียนเอกสาร Memo ภาษาไทยสำหรับองค์กร บริษัท ไทยซอสเซส มาร์เก็ตติ้ง จำกัด ${styleGuide}`;
+    systemPrompt = `คุณเป็นผู้ช่วยเขียนเอกสาร Memo ภาษาไทยสำหรับองค์กร บริษัท ไทยซอสเซส มาร์เก็ตติ้ง จำกัด ${styleGuide} ตอบเป็น JSON เท่านั้น`;
     userMessage = `ชื่อเรื่อง: ${title || "(ไม่ระบุ)"}
 หมวดหมู่: ${category || "ทั่วไป"}
 รูปแบบที่ต้องการ: ${style || "formal"}
@@ -26,7 +26,11 @@ export default async function handler(req, res) {
 
 กรุณาเขียนเนื้อหา Memo ตามรูปแบบ "${style || "formal"}" ให้สมบูรณ์ โดย${styleGuide}
 
-เขียนเป็น HTML ที่เรียบง่าย ใช้ได้แค่ <p>, <ul>, <li>, <strong>, <br> เท่านั้น ไม่ใช้ tag อื่น`;
+ตอบในรูปแบบ JSON เท่านั้น (ไม่มีข้อความอื่นนอก JSON):
+{
+  "suggestedTitle": "ชื่อเรื่องที่เหมาะสมและกระชับ (ถ้ามีชื่อเรื่องอยู่แล้วให้ใช้ชื่อเดิมหรือปรับปรุงให้ดีขึ้น)",
+  "content": "เนื้อหา Memo เป็น HTML ที่เรียบง่าย ใช้ได้แค่ <p>, <ul>, <li>, <strong>, <br> เท่านั้น ไม่ใช้ tag อื่น"
+}`;
   } else if (mode === "summarize") {
     systemPrompt = `คุณเป็นผู้ช่วยวิเคราะห์และสรุปเอกสาร Memo ภาษาไทย วิเคราะห์อย่างละเอียดและตรงประเด็น ตอบเป็น JSON เท่านั้น`;
     userMessage = `ชื่อเรื่อง: ${title || "(ไม่ระบุ)"}
@@ -73,6 +77,12 @@ ${content || "(ไม่มีเนื้อหา)"}
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
       return res.json(parsed);
+    }
+
+    if (mode === "write") {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+      return res.json({ content: parsed.content || text, suggestedTitle: parsed.suggestedTitle || "" });
     }
 
     return res.json({ content: text });
