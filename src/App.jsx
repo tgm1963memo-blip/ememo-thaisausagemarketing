@@ -1655,8 +1655,18 @@ function RichEditor({ value, onChange }) {
   );
 }
 
+const AI_STYLES = [
+  { key:"formal",    label:"ทางการ",    icon:"🏛",  desc:"ภาษาราชการ เป็นระเบียบ" },
+  { key:"concise",   label:"กระชับ",    icon:"⚡",  desc:"สั้น ตรงประเด็น" },
+  { key:"detailed",  label:"ละเอียด",   icon:"📋",  desc:"อธิบายครบถ้วน มีเหตุผล" },
+  { key:"approval",  label:"ขออนุมัติ", icon:"✅",  desc:"เน้น proposal & ROI" },
+  { key:"circular",  label:"แจ้งเวียน", icon:"📢",  desc:"แจ้งให้ทราบทั่วกัน" },
+  { key:"report",    label:"รายงานผล",  icon:"📊",  desc:"รายงานความคืบหน้า/ผล" },
+];
+
 function AiWriteModal({ title, category, onUse, onClose }) {
   const [brief,   setBrief]   = useState("");
+  const [style,   setStyle]   = useState("formal");
   const [loading, setLoading] = useState(false);
   const [result,  setResult]  = useState("");
   const [err,     setErr]     = useState("");
@@ -1667,7 +1677,7 @@ function AiWriteModal({ title, category, onUse, onClose }) {
     try {
       const res = await fetch(`${API_BASE}/api/ai-assist`, {
         method: "POST", headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ mode:"write", title, category, brief }),
+        body: JSON.stringify({ mode:"write", title, category, brief, style }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาด");
@@ -1676,19 +1686,38 @@ function AiWriteModal({ title, category, onUse, onClose }) {
     finally { setLoading(false); }
   };
 
+  const selectedStyle = AI_STYLES.find(s=>s.key===style);
+
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"#fff",borderRadius:12,padding:24,width:"100%",maxWidth:600,maxHeight:"82vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.22)"}}>
+      <div style={{background:"#fff",borderRadius:12,padding:24,width:"100%",maxWidth:620,maxHeight:"88vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.22)"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
           <span style={{fontSize:20}}>✨</span>
           <div style={{fontSize:15,fontWeight:600,color:"#111"}}>AI ช่วยเขียน Memo</div>
           <button onClick={onClose} style={{marginLeft:"auto",background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#9CA3AF",lineHeight:1,padding:0}}>✕</button>
         </div>
-        <div style={{fontSize:12,color:"#6B7280",marginBottom:12}}>
+        <div style={{fontSize:12,color:"#6B7280",marginBottom:14}}>
           ชื่อเรื่อง: <b style={{color:"#111"}}>{title||"(ยังไม่ได้กรอก)"}</b> · หมวด: <b style={{color:"#111"}}>{category}</b>
         </div>
+
+        {/* Style Selector */}
+        <label style={{fontSize:11,fontWeight:600,color:"#6B7280",display:"block",marginBottom:6}}>รูปแบบการเขียน</label>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:14}}>
+          {AI_STYLES.map(s=>(
+            <button key={s.key} onClick={()=>setStyle(s.key)}
+              style={{padding:"8px 6px",borderRadius:7,border:`2px solid ${style===s.key?"#7C3AED":"#E5E7EB"}`,background:style===s.key?"#F5F3FF":"#fff",cursor:"pointer",textAlign:"left",transition:"all .15s"}}>
+              <div style={{fontSize:14,marginBottom:2}}>{s.icon}</div>
+              <div style={{fontSize:12,fontWeight:600,color:style===s.key?"#7C3AED":"#374151"}}>{s.label}</div>
+              <div style={{fontSize:10,color:"#9CA3AF",lineHeight:1.3}}>{s.desc}</div>
+            </button>
+          ))}
+        </div>
+        {selectedStyle&&<div style={{fontSize:11,color:"#7C3AED",background:"#F5F3FF",border:"1px solid #DDD6FE",borderRadius:5,padding:"5px 10px",marginBottom:12}}>
+          {selectedStyle.icon} รูปแบบ <b>{selectedStyle.label}</b>: {selectedStyle.desc}
+        </div>}
+
         <label style={{fontSize:11,fontWeight:600,color:"#6B7280",display:"block",marginBottom:4}}>บรีฟหัวข้อ / วัตถุประสงค์ *</label>
-        <textarea value={brief} onChange={e=>setBrief(e.target.value)} rows={4}
+        <textarea value={brief} onChange={e=>setBrief(e.target.value)} rows={3}
           placeholder="เช่น ขออนุมัติซื้อคอมพิวเตอร์ 5 เครื่อง งบ 150,000 บาท เพื่อทดแทนเครื่องเก่าที่ชำรุด..."
           style={{width:"100%",padding:"9px 10px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:13,fontFamily:"inherit",resize:"vertical",boxSizing:"border-box"}}
         />
@@ -1700,7 +1729,7 @@ function AiWriteModal({ title, category, onUse, onClose }) {
         {result&&(
           <div style={{marginTop:16}}>
             <div style={{fontSize:11,fontWeight:600,color:"#6B7280",textTransform:"uppercase",letterSpacing:.4,marginBottom:6}}>ผลลัพธ์จาก AI</div>
-            <div style={{border:"1px solid #DDD6FE",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.7,color:"#374151",background:"#FAFAFE",maxHeight:280,overflow:"auto"}}
+            <div style={{border:"1px solid #DDD6FE",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.7,color:"#374151",background:"#FAFAFE",maxHeight:260,overflow:"auto"}}
               dangerouslySetInnerHTML={{__html:result}}/>
             <div style={{display:"flex",gap:8,marginTop:10}}>
               <button onClick={()=>{onUse(result);onClose();}} style={{padding:"8px 20px",background:"#059669",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>✓ ใช้เนื้อหานี้</button>

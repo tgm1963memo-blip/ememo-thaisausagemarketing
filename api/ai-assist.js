@@ -1,23 +1,30 @@
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { mode, title, category, brief, content } = req.body;
+  const { mode, title, category, brief, content, style } = req.body;
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "GROQ_API_KEY ไม่ได้ตั้งค่า กรุณาตั้งค่าใน Vercel Environment Variables" });
+
+  const STYLE_INSTRUCTIONS = {
+    formal:   "เขียนด้วยภาษาราชการเป็นทางการ สุภาพ มีโครงสร้างชัดเจน ใช้ภาษาที่เป็นทางการสูง",
+    concise:  "เขียนให้สั้นและกระชับที่สุด ตรงประเด็น ไม่เยิ่นเย้อ แต่ครบเนื้อหาสำคัญ",
+    detailed: "เขียนอธิบายอย่างละเอียดครบถ้วน มีเหตุผลประกอบทุกข้อ มีข้อมูลสนับสนุน",
+    approval: "เน้นการขออนุมัติ นำเสนอ ROI และผลประโยชน์ที่องค์กรจะได้รับ มีการเปรียบเทียบตัวเลข",
+    circular: "เขียนในรูปแบบหนังสือแจ้งเวียน แจ้งให้ทราบทั่วกัน ระบุผู้รับและกำหนดเวลาปฏิบัติ",
+    report:   "เขียนในรูปแบบรายงานผลการดำเนินงาน มีสรุปผล ปัญหาที่พบ และข้อเสนอแนะ",
+  };
+  const styleGuide = STYLE_INSTRUCTIONS[style] || STYLE_INSTRUCTIONS.formal;
 
   let systemPrompt, userMessage;
 
   if (mode === "write") {
-    systemPrompt = `คุณเป็นผู้ช่วยเขียนเอกสาร Memo ภาษาไทยสำหรับองค์กร บริษัท ไทยซอสเซส มาร์เก็ตติ้ง จำกัด เขียนภาษาไทยที่เป็นทางการ กระชับ และชัดเจน ใช้รูปแบบ Memo มาตรฐาน`;
+    systemPrompt = `คุณเป็นผู้ช่วยเขียนเอกสาร Memo ภาษาไทยสำหรับองค์กร บริษัท ไทยซอสเซส มาร์เก็ตติ้ง จำกัด ${styleGuide}`;
     userMessage = `ชื่อเรื่อง: ${title || "(ไม่ระบุ)"}
 หมวดหมู่: ${category || "ทั่วไป"}
+รูปแบบที่ต้องการ: ${style || "formal"}
 บรีฟ/วัตถุประสงค์: ${brief}
 
-กรุณาเขียนเนื้อหา Memo ที่สมบูรณ์และเป็นทางการ ประกอบด้วย:
-1. วัตถุประสงค์/ที่มา
-2. รายละเอียด/เหตุผล
-3. ข้อเสนอ/ขออนุมัติ
-4. สรุป
+กรุณาเขียนเนื้อหา Memo ตามรูปแบบ "${style || "formal"}" ให้สมบูรณ์ โดย${styleGuide}
 
 เขียนเป็น HTML ที่เรียบง่าย ใช้ได้แค่ <p>, <ul>, <li>, <strong>, <br> เท่านั้น ไม่ใช้ tag อื่น`;
   } else if (mode === "summarize") {
