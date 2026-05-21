@@ -26,10 +26,7 @@ function initFirebaseAdmin() {
 
 async function createResetLink(email) {
   initFirebaseAdmin();
-  return admin.auth().generatePasswordResetLink(email, {
-    url: getAppUrl(),
-    handleCodeInApp: false,
-  });
+  return admin.auth().generatePasswordResetLink(email);
 }
 
 function createAppResetLink(firebaseLink) {
@@ -68,6 +65,7 @@ function mapError(err) {
   const code = err?.code || err?.message || "";
   if (code.includes("user-not-found") || code === "USER_NOT_FOUND") return { status: 404, error: "USER_NOT_FOUND" };
   if (code.includes("invalid-email") || code === "INVALID_EMAIL") return { status: 400, error: "INVALID_EMAIL" };
+  if (code.includes("unauthorized-continue-uri")) return { status: 400, error: "UNAUTHORIZED_CONTINUE_URI" };
   if (code === "SMTP_CONFIG_MISSING") return { status: 500, error: "SMTP_CONFIG_MISSING" };
   if (code === "FIREBASE_ADMIN_CONFIG_MISSING") return { status: 500, error: "FIREBASE_ADMIN_CONFIG_MISSING" };
   return { status: 500, error: code || "SEND_RESET_EMAIL_FAILED" };

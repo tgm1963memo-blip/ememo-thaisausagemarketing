@@ -33,14 +33,35 @@ const API_BASE = typeof window !== "undefined"
   : "";
 
 async function sendResetEmailREST(email, name="", isNew=false) {
-  const res = await fetch(`${API_BASE}/api/send-reset-email`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, name, isNew }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "ส่งไม่สำเร็จ");
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/api/send-reset-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, name, isNew }),
+    });
+  } catch (err) {
+    throw new Error("เรียก API ส่งอีเมลไม่ได้ — ถ้าทดสอบบนเครื่องให้รันผ่าน Vercel dev หรือ deploy ขึ้น Vercel");
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const error = new Error(resetEmailErrorMessage(data.error));
+    error.code = data.error;
+    throw error;
+  }
   return data;
+}
+
+function resetEmailErrorMessage(code) {
+  return {
+    USER_NOT_FOUND: "ไม่พบ Auth user นี้ใน Firebase — กรุณาสร้างบัญชี Auth ก่อน",
+    EMAIL_NOT_FOUND: "ไม่พบ Auth user นี้ใน Firebase — กรุณาสร้างบัญชี Auth ก่อน",
+    INVALID_EMAIL: "รูปแบบ Email ไม่ถูกต้อง",
+    SMTP_CONFIG_MISSING: "ระบบยังไม่ได้ตั้งค่า SMTP ของ noreply.ememo@tgm.co.th",
+    FIREBASE_ADMIN_CONFIG_MISSING: "ระบบยังไม่ได้ตั้งค่า Firebase Admin บน Vercel",
+    UNAUTHORIZED_CONTINUE_URI: "โดเมน reset password ยังไม่ได้รับอนุญาตใน Firebase",
+  }[code] || (code || "ส่งลิงก์รีเซ็ตรหัสผ่านไม่สำเร็จ");
 }
 
 async function sendMemoEmail({ to, subject, html, text, attachments }) {
@@ -2371,7 +2392,7 @@ function UsersMgmt({ users, curUser, showToast }) {
   const [editing,setEditing]=useState(null); const [delConfirm,setDelConfirm]=useState(null); const [importPreview,setImportPreview]=useState(null);
   const xlsxRef=useRef(); const blank={name:"",email:"",dept:"",role:"user",active:true};
   const handleXlsxImport=async(e)=>{const file=e.target.files[0];if(!file)return;e.target.value="";try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:""});const parsed=rows.map(r=>({name:String(r["ชื่อ-สกุล"]||r["name"]||"").trim(),email:String(r["อีเมล์"]||r["email"]||"").trim().toLowerCase(),dept:String(r["แผนก"]||r["dept"]||"").trim(),role:["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase())?String(r["สิทธิ์"]||r["role"]||"user").toLowerCase():"user",active:true})).filter(r=>r.name&&r.email&&r.email.includes("@"));if(!parsed.length){showToast("ไม่พบข้อมูลที่ถูกต้อง","error");return;}setImportPreview(parsed);}catch(err){showToast("อ่านไฟล์ไม่ได้: "+err.message,"error");}};
-  const confirmImport=async()=>{if(!importPreview)return;const existing=Object.fromEntries(users.map(u=>[u.id,u]));let added=0,updated=0,authFailed=0;for(const r of importPreview){const dup=users.find(u=>u.email===r.email);if(dup){existing[dup.id]={...dup,name:r.name,dept:r.dept,role:r.role};updated++;}else{const id=newId("u");existing[id]={...r,id};added++;try{await createAuthUserREST(r.email);await sendResetEmailREST(r.email);}catch(authErr){if(authErr.message==="EMAIL_EXISTS"){try{await sendResetEmailREST(r.email);}catch{}}else{authFailed++;console.warn("Auth failed for",r.email,authErr.message);}}}}await writeUsers(existing);const failMsg=authFailed>0?` (สร้าง Auth ไม่สำเร็จ ${authFailed} คน — ตรวจสอบ Firebase Console)`:"";showToast(`นำเข้าสำเร็จ: เพิ่ม ${added} คน, อัปเดต ${updated} คน${failMsg}`);setImportPreview(null);};
+  const confirmImport=async()=>{if(!importPreview)return;const existing=Object.fromEntries(users.map(u=>[u.id,u]));let added=0,updated=0,authFailed=0;for(const r of importPreview){const dup=users.find(u=>u.email===r.email);if(dup){existing[dup.id]={...dup,name:r.name,dept:r.dept,role:r.role};updated++;}else{const id=newId("u");existing[id]={...r,id};added++;try{await createAuthUserREST(r.email);await sendResetEmailREST(r.email,r.name,true);}catch(authErr){if(authErr.message==="EMAIL_EXISTS"){try{await sendResetEmailREST(r.email,r.name,true);}catch{}}else{authFailed++;console.warn("Auth failed for",r.email,authErr.message);}}}}await writeUsers(existing);const failMsg=authFailed>0?` (สร้าง Auth ไม่สำเร็จ ${authFailed} คน — ตรวจสอบ Firebase Console)`:"";showToast(`นำเข้าสำเร็จ: เพิ่ม ${added} คน, อัปเดต ${updated} คน${failMsg}`);setImportPreview(null);};
   const save=async()=>{
     if(!editing.name.trim()||!editing.email.trim()){showToast("กรุณากรอกชื่อและอีเมล์","error");return;}
     if(!editing.email.includes("@")){showToast("รูปแบบอีเมล์ไม่ถูกต้อง","error");return;}
@@ -2385,13 +2406,13 @@ function UsersMgmt({ users, curUser, showToast }) {
       try{
         await createAuthUserREST(editing.email.trim());
         // ส่งลิงก์ตั้งรหัสผ่านทันที
-        await sendResetEmailREST(editing.email.trim());
+        await sendResetEmailREST(editing.email.trim(), editing.name.trim(), true);
         showToast("✅ เพิ่ม User แล้ว — ส่งลิงก์ตั้งรหัสผ่านไปที่ "+editing.email.trim());
       }catch(authErr){
         if(authErr.message==="EMAIL_EXISTS"){
           // มี Auth account แล้ว ส่ง reset link
           try{
-            await sendResetEmailREST(editing.email.trim());
+            await sendResetEmailREST(editing.email.trim(), editing.name.trim(), true);
             showToast("✅ เพิ่ม User แล้ว — ส่งลิงก์รีเซ็ตรหัสผ่านให้แล้ว");
           }catch{ showToast("✅ เพิ่ม User แล้ว (มี Auth account อยู่แล้ว)"); }
         } else {
@@ -2443,7 +2464,7 @@ function UsersMgmt({ users, curUser, showToast }) {
             <div><span style={{fontSize:11,fontWeight:500,color:u.active?"#065F46":"#991B1B",background:u.active?"#ECFDF5":"#FFF1F1",border:`1px solid ${u.active?"#A7F3D0":"#FECACA"}`,borderRadius:4,padding:"2px 7px"}}>{u.active?"ใช้งาน":"ระงับ"}</span></div>
             <div style={{display:"flex",gap:4}}>
               <button onClick={()=>setEditing({...u})} style={BTN_GRAY}>แก้ไข</button>
-              <button onClick={async()=>{try{await sendResetEmailREST(u.email);showToast("ส่งลิงก์รีเซ็ตรหัสผ่านให้ "+u.email+" แล้ว");}catch(e){showToast("ส่งไม่สำเร็จ: "+e.code,"error");}}} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",cursor:"pointer"}} title="ส่งลิงก์รีเซ็ตรหัสผ่าน">🔑</button>
+              <button onClick={async()=>{try{await sendResetEmailREST(u.email,u.name,false);showToast("ส่งลิงก์รีเซ็ตรหัสผ่านให้ "+u.email+" แล้ว");}catch(e){showToast("ส่งไม่สำเร็จ: "+(e.message||e.code),"error");}}} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",cursor:"pointer"}} title="ส่งลิงก์รีเซ็ตรหัสผ่าน">🔑</button>
               <button onClick={()=>toggle(u)} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:u.active?"#FFFBEB":"#ECFDF5",color:u.active?"#B45309":"#065F46",border:`1px solid ${u.active?"#FCD34D":"#A7F3D0"}`,cursor:"pointer"}}>{u.active?"ระงับ":"เปิด"}</button>
               {u.id!==curUser.id&&<button onClick={()=>setDelConfirm(u)} style={{...BTN_X,color:"#DC2626",padding:"3px 6px",border:"1px solid #FECACA",borderRadius:5,background:"#FFF1F1"}}>ลบ</button>}
             </div>

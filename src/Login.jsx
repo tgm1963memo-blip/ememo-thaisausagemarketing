@@ -23,6 +23,7 @@ async function sendResetEmail(email) {
       "FIREBASE_API_KEY not set in environment variables": "ระบบยังไม่ได้ตั้งค่า — กรุณาติดต่อ Admin",
       "FIREBASE_ADMIN_CONFIG_MISSING": "ระบบยังไม่ได้ตั้งค่า Firebase Admin — กรุณาติดต่อ Admin",
       "SMTP_CONFIG_MISSING": "ระบบยังไม่ได้ตั้งค่าอีเมลบริษัท — กรุณาติดต่อ Admin",
+      "UNAUTHORIZED_CONTINUE_URI": "โดเมนสำหรับลิงก์รีเซ็ตรหัสผ่านยังไม่ได้รับอนุญาตใน Firebase",
     }[data.error] || (data.error || "ส่งไม่สำเร็จ — กรุณาติดต่อ Admin");
     throw new Error(msg);
   }
