@@ -21,6 +21,8 @@ async function sendResetEmail(email) {
       "INVALID_EMAIL": "รูปแบบ Email ไม่ถูกต้อง",
       "TOO_MANY_ATTEMPTS_TRY_LATER": "ส่งบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่",
       "FIREBASE_API_KEY not set in environment variables": "ระบบยังไม่ได้ตั้งค่า — กรุณาติดต่อ Admin",
+      "FIREBASE_ADMIN_CONFIG_MISSING": "ระบบยังไม่ได้ตั้งค่า Firebase Admin — กรุณาติดต่อ Admin",
+      "SMTP_CONFIG_MISSING": "ระบบยังไม่ได้ตั้งค่าอีเมลบริษัท — กรุณาติดต่อ Admin",
     }[data.error] || (data.error || "ส่งไม่สำเร็จ — กรุณาติดต่อ Admin");
     throw new Error(msg);
   }

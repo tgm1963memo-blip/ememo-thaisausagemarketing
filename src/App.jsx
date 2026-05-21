@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { onAuthStateChanged, signOut, sendPasswordResetEmail } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { ref, onValue, set, push, update } from "firebase/database";
 import { auth, db, DATA_PATH } from "./firebase";
 import Login from "./Login";
@@ -32,28 +32,14 @@ const API_BASE = typeof window !== "undefined"
   : "";
 
 async function sendResetEmailREST(email, name="", isNew=false) {
-  // ลองใช้ API route ของบริษัทก่อน (send-reset-email.js)
-  try {
-    const res = await fetch(`${API_BASE}/api/send-reset-email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, name, isNew }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "ส่งไม่สำเร็จ");
-    return data;
-  } catch (err) {
-    // Fallback: ใช้ Firebase REST API (ส่งจาก noreply@firebase)
-    const apiKey = auth.app.options.apiKey;
-    const res2 = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`,
-      { method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ requestType:"PASSWORD_RESET", email }) }
-    );
-    const data2 = await res2.json();
-    if (data2.error) throw new Error(data2.error.message);
-    return data2;
-  }
+  const res = await fetch(`${API_BASE}/api/send-reset-email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, name, isNew }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "ส่งไม่สำเร็จ");
+  return data;
 }
 
 async function sendMemoEmail({ to, subject, html, text, attachments }) {
