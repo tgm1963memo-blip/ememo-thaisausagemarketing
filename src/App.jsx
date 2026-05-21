@@ -3,6 +3,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { ref, onValue, set, push, update } from "firebase/database";
 import { auth, db, DATA_PATH } from "./firebase";
 import Login from "./Login";
+import ResetPassword from "./ResetPassword";
 
 // ── Firebase Auth REST API ─────────────────────────────────────────────────
 // ข้อ 1 & 4: สร้าง Auth user ผ่าน REST API โดยไม่ต้อง logout admin
@@ -3006,6 +3007,8 @@ function RecallSmartModal({ memo, onRecallAndEdit, onRecallOnly, onCancel }) {
 }
 
 export default function EMemo() {
+  const resetParams = new URLSearchParams(window.location.search);
+  const isResetPasswordLink = resetParams.get("mode") === "resetPassword" && !!resetParams.get("oobCode");
   const [authUser,      setAuthUser]      = useState(undefined);
   const [data,          setData]          = useState(null);
   const [view,          setView]          = useState("dashboard");
@@ -3032,6 +3035,7 @@ export default function EMemo() {
 
   // ── History API (must be before early returns — Rules of Hooks) ──────────
   useEffect(() => {
+    if (isResetPasswordLink) return;
     const onPop = (e) => {
       const s = e.state;
       if (s?.view) { setView(s.view); setSelId(s.selId||null); setEditMemo(null); }
@@ -3040,10 +3044,11 @@ export default function EMemo() {
     window.addEventListener("popstate", onPop);
     window.history.replaceState({ view:"dashboard" }, "", window.location.pathname);
     return () => window.removeEventListener("popstate", onPop);
-  }, []);
+  }, [isResetPasswordLink]);
 
   const showToast=(msg,type="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3200); };
 
+  if (isResetPasswordLink) return <ResetPassword/>;
   if (authUser===undefined) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:BLACK,fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}><div style={{textAlign:"center"}}><div style={{width:40,height:40,background:GOLD,borderRadius:10,margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:BLACK,fontWeight:700}}>E</div><div style={{color:"#666",fontSize:13}}>กำลังโหลด...</div></div></div>;
   if (!authUser) return <Login/>;
   if (!data) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F9FAFB",fontSize:13,color:"#6B7280",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>กำลังโหลดข้อมูล...</div>;

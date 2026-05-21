@@ -32,6 +32,20 @@ async function createResetLink(email) {
   });
 }
 
+function createAppResetLink(firebaseLink) {
+  const appUrl = getAppUrl();
+  const parsedLink = new URL(firebaseLink);
+  const oobCode = parsedLink.searchParams.get("oobCode");
+  const mode = parsedLink.searchParams.get("mode") || "resetPassword";
+
+  if (!oobCode) return firebaseLink;
+
+  const appResetUrl = new URL(appUrl);
+  appResetUrl.searchParams.set("mode", mode);
+  appResetUrl.searchParams.set("oobCode", oobCode);
+  return appResetUrl.toString();
+}
+
 function createTransporter() {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     throw new Error("SMTP_CONFIG_MISSING");
@@ -80,7 +94,8 @@ export default async function handler(req, res) {
   if (!normalizedEmail) return res.status(400).json({ error: "Missing email" });
 
   try {
-    const resetLink = await createResetLink(normalizedEmail);
+    const firebaseResetLink = await createResetLink(normalizedEmail);
+    const resetLink = createAppResetLink(firebaseResetLink);
     const appUrl = getAppUrl();
     const transporter = createTransporter();
     const subject = isNew
