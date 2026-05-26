@@ -3,6 +3,14 @@ import { auth } from "./firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
 
 const GOLD = "#D4AF37";
+const DEFAULT_LOGIN_DOMAIN = import.meta.env.VITE_LOGIN_EMAIL_DOMAIN || "tgm.co.th";
+
+function resolveLoginEmail(value) {
+  const loginId = value.trim().toLowerCase();
+  if (!loginId) return "";
+  if (loginId.includes("@")) return loginId;
+  return `${loginId.replace(/[^a-z0-9._-]/g, "")}@${DEFAULT_LOGIN_DOMAIN}`;
+}
 
 // ── Reset Password ─────────────────────────────────────────────────────────────
 // เรียก /api/send-reset-email → Firebase ส่ง link + SMTP บริษัทส่งซ้ำ
@@ -31,7 +39,7 @@ async function sendResetEmail(email) {
 }
 
 export default function Login() {
-  const [email,        setEmail]        = useState("");
+  const [loginId,      setLoginId]      = useState("");
   const [password,     setPassword]     = useState("");
   const [loading,      setLoading]      = useState(false);
   const [resetMode,    setResetMode]    = useState(false);
@@ -40,6 +48,7 @@ export default function Login() {
   const [error,        setError]        = useState("");
 
   const handleLogin = async () => {
+    const email = resolveLoginEmail(loginId);
     if (!email || !password) { setError("กรุณากรอกข้อมูลให้ครบ"); return; }
     setError(""); setLoading(true);
     try {
@@ -57,6 +66,7 @@ export default function Login() {
   };
 
   const handleReset = async () => {
+    const email = resolveLoginEmail(loginId);
     if (!email) { setError("กรุณากรอก Email ก่อน"); return; }
     setError(""); setResetLoading(true);
     try {
@@ -86,7 +96,7 @@ export default function Login() {
 
         {resetSent && (
           <div style={S.success}>
-            ✅ ส่งลิงก์ไปที่ <strong>{email}</strong> แล้ว<br/>
+            ✅ ส่งลิงก์ไปที่ <strong>{resolveLoginEmail(loginId)}</strong> แล้ว<br/>
             <span style={{fontSize:12}}>ส่งจาก <strong>noreply.ememo@tgm.co.th</strong></span><br/>
             กรุณาตรวจสอบกล่องจดหมาย (รวมถึง Spam / Junk)<br/>
             <span style={{fontSize:11,color:"#047857",display:"block",marginTop:4}}>
@@ -95,8 +105,8 @@ export default function Login() {
           </div>
         )}
 
-        <input style={S.input} placeholder="Email" type="email" value={email}
-          onChange={e=>{setEmail(e.target.value);setError("");}} onKeyDown={onKey}/>
+        <input style={S.input} placeholder={`Username หรือ Email (${DEFAULT_LOGIN_DOMAIN})`} type="text" value={loginId}
+          onChange={e=>{setLoginId(e.target.value);setError("");}} onKeyDown={onKey} autoComplete="username"/>
 
         {!resetMode && (
           <input style={S.input} type="password" placeholder="Password" value={password}
@@ -124,7 +134,7 @@ export default function Login() {
 
         {resetMode && !resetSent && (
           <p style={S.hint}>
-            กรอก Email แล้วกด "ส่งลิงก์" — ระบบส่งจาก <strong>noreply.ememo@tgm.co.th</strong>
+            กรอก Username หรือ Email แล้วกด "ส่งลิงก์" — ระบบส่งจาก <strong>noreply.ememo@tgm.co.th</strong>
           </p>
         )}
       </div>

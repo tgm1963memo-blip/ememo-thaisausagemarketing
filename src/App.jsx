@@ -10,10 +10,30 @@ import ResetPassword from "./ResetPassword";
 // Firebase ส่งอีเมล์จาก noreply@[project].firebaseapp.com
 // → ตั้ง custom email ได้ที่: Firebase Console → Authentication → Templates → Customize
 // → ปุ่ม "Customize action URL" และกำหนด custom domain ให้อีเมล์ไม่ตก Spam
-async function createAuthUserREST(email) {
+const DEFAULT_LOGIN_DOMAIN = import.meta.env.VITE_LOGIN_EMAIL_DOMAIN || "tgm.co.th";
+
+function normalizeLoginId(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "");
+}
+
+function makeLoginEmail(loginId) {
+  const raw = String(loginId || "").trim().toLowerCase();
+  if (raw.includes("@")) return raw;
+  const clean = normalizeLoginId(raw);
+  return `${clean}@${DEFAULT_LOGIN_DOMAIN}`;
+}
+
+function loginIdFromUser(user) {
+  return user?.loginId || String(user?.email || "").split("@")[0] || "";
+}
+
+async function createAuthUserREST(email, password) {
   const apiKey = auth.app.options.apiKey;
   // สร้าง random password ชั่วคราว user จะ reset ผ่านลิงก์
-  const tmpPwd = Math.random().toString(36).slice(2,8) + "X9!" + Math.random().toString(36).slice(2,5);
+  const tmpPwd = password || (Math.random().toString(36).slice(2,8) + "X9!" + Math.random().toString(36).slice(2,5));
   const res = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
     { method:"POST", headers:{"Content-Type":"application/json"},
@@ -2390,31 +2410,30 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
 // UsersMgmt, SettingsView — same as original ──────────────────────────────────
 function UsersMgmt({ users, curUser, showToast }) {
   const [editing,setEditing]=useState(null); const [delConfirm,setDelConfirm]=useState(null); const [importPreview,setImportPreview]=useState(null);
-  const xlsxRef=useRef(); const blank={name:"",email:"",dept:"",role:"user",active:true};
-  const handleXlsxImport=async(e)=>{const file=e.target.files[0];if(!file)return;e.target.value="";try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:""});const parsed=rows.map(r=>({name:String(r["ชื่อ-สกุล"]||r["name"]||"").trim(),email:String(r["อีเมล์"]||r["email"]||"").trim().toLowerCase(),dept:String(r["แผนก"]||r["dept"]||"").trim(),role:["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase())?String(r["สิทธิ์"]||r["role"]||"user").toLowerCase():"user",active:true})).filter(r=>r.name&&r.email&&r.email.includes("@"));if(!parsed.length){showToast("ไม่พบข้อมูลที่ถูกต้อง","error");return;}setImportPreview(parsed);}catch(err){showToast("อ่านไฟล์ไม่ได้: "+err.message,"error");}};
-  const confirmImport=async()=>{if(!importPreview)return;const existing=Object.fromEntries(users.map(u=>[u.id,u]));let added=0,updated=0,authFailed=0;for(const r of importPreview){const dup=users.find(u=>u.email===r.email);if(dup){existing[dup.id]={...dup,name:r.name,dept:r.dept,role:r.role};updated++;}else{const id=newId("u");existing[id]={...r,id};added++;try{await createAuthUserREST(r.email);await sendResetEmailREST(r.email,r.name,true);}catch(authErr){if(authErr.message==="EMAIL_EXISTS"){try{await sendResetEmailREST(r.email,r.name,true);}catch{}}else{authFailed++;console.warn("Auth failed for",r.email,authErr.message);}}}}await writeUsers(existing);const failMsg=authFailed>0?` (สร้าง Auth ไม่สำเร็จ ${authFailed} คน — ตรวจสอบ Firebase Console)`:"";showToast(`นำเข้าสำเร็จ: เพิ่ม ${added} คน, อัปเดต ${updated} คน${failMsg}`);setImportPreview(null);};
+  const xlsxRef=useRef(); const blank={name:"",loginId:"",password:"",email:"",dept:"",role:"user",active:true};
+  const handleXlsxImport=async(e)=>{const file=e.target.files[0];if(!file)return;e.target.value="";try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:""});const parsed=rows.map(r=>{const name=String(r["ชื่อ-สกุล"]||r["name"]||"").trim();const loginId=normalizeLoginId(r["username"]||r["Username"]||r["loginId"]||String(name).replace(/\s+/g,"."));return{name,loginId,email:makeLoginEmail(loginId),password:String(r["รหัสผ่าน"]||r["password"]||"").trim(),dept:String(r["แผนก"]||r["dept"]||"").trim(),role:["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase())?String(r["สิทธิ์"]||r["role"]||"user").toLowerCase():"user",active:true};}).filter(r=>r.name&&r.loginId&&r.password.length>=6);if(!parsed.length){showToast("ไม่พบข้อมูลที่ถูกต้อง","error");return;}setImportPreview(parsed);}catch(err){showToast("อ่านไฟล์ไม่ได้: "+err.message,"error");}};
+  const confirmImport=async()=>{if(!importPreview)return;const existing=Object.fromEntries(users.map(u=>[u.id,u]));let added=0,updated=0,authFailed=0;for(const r of importPreview){const dup=users.find(u=>(u.loginId||loginIdFromUser(u))===r.loginId||u.email===r.email);if(dup){existing[dup.id]={...dup,name:r.name,loginId:r.loginId,email:r.email,dept:r.dept,role:r.role};updated++;}else{const id=newId("u");const {password,...userData}=r;existing[id]={...userData,id};added++;try{await createAuthUserREST(r.email,r.password);}catch(authErr){if(authErr.message!=="EMAIL_EXISTS"){authFailed++;console.warn("Auth failed for",r.loginId,authErr.message);}}}}await writeUsers(existing);const failMsg=authFailed>0?` (สร้าง Auth ไม่สำเร็จ ${authFailed} คน — ตรวจสอบ Firebase Console)`:"";showToast(`นำเข้าสำเร็จ: เพิ่ม ${added} คน, อัปเดต ${updated} คน${failMsg}`);setImportPreview(null);};
   const save=async()=>{
-    if(!editing.name.trim()||!editing.email.trim()){showToast("กรุณากรอกชื่อและอีเมล์","error");return;}
-    if(!editing.email.includes("@")){showToast("รูปแบบอีเมล์ไม่ถูกต้อง","error");return;}
-    if(!editing.id&&users.find(u=>u.email===editing.email.trim())){showToast("อีเมล์นี้มีในระบบแล้ว","error");return;}
+    const name = editing.name.trim();
+    const loginId = normalizeLoginId(editing.loginId || editing.email || name.replace(/\s+/g,"."));
+    const email = editing.email?.trim() && editing.email.includes("@") ? editing.email.trim().toLowerCase() : makeLoginEmail(loginId);
+    const password = String(editing.password || "");
+    if(!name||!loginId){showToast("กรุณากรอกชื่อและ Username","error");return;}
+    if(!editing.id&&password.length<6){showToast("กรุณาตั้งรหัสผ่านอย่างน้อย 6 ตัวอักษร","error");return;}
+    if(!editing.id&&users.find(u=>(u.loginId||"")===loginId||u.email===email)){showToast("Username นี้มีในระบบแล้ว","error");return;}
     const id=editing.id||newId("u");
-    const newUser={...editing,id,name:editing.name.trim(),email:editing.email.trim()};
+    const { password: _password, ...editingSafe } = editing;
+    const newUser={...editingSafe,id,name,loginId,email};
     const newObj={...Object.fromEntries(users.map(u=>[u.id,u])),[id]:newUser};
     await writeUsers(newObj);
     // ── ข้อ 4: สร้าง Firebase Auth user ผ่าน REST API (admin ไม่ logout) ──
     if(!editing.id){
       try{
-        await createAuthUserREST(editing.email.trim());
-        // ส่งลิงก์ตั้งรหัสผ่านทันที
-        await sendResetEmailREST(editing.email.trim(), editing.name.trim(), true);
-        showToast("✅ เพิ่ม User แล้ว — ส่งลิงก์ตั้งรหัสผ่านไปที่ "+editing.email.trim());
+        await createAuthUserREST(email, password);
+        showToast("✅ เพิ่ม User แล้ว — ใช้ Username "+loginId+" เข้าสู่ระบบได้ทันที");
       }catch(authErr){
         if(authErr.message==="EMAIL_EXISTS"){
-          // มี Auth account แล้ว ส่ง reset link
-          try{
-            await sendResetEmailREST(editing.email.trim(), editing.name.trim(), true);
-            showToast("✅ เพิ่ม User แล้ว — ส่งลิงก์รีเซ็ตรหัสผ่านให้แล้ว");
-          }catch{ showToast("✅ เพิ่ม User แล้ว (มี Auth account อยู่แล้ว)"); }
+          showToast("✅ เพิ่ม User แล้ว (มี Auth account อยู่แล้ว)");
         } else {
           // REST สร้างไม่ได้ → แนะนำสร้างเองใน Console
           showToast("⚠️ เพิ่มใน DB แล้ว แต่สร้าง Auth ไม่สำเร็จ ("+authErr.message+") → สร้างใน Firebase Console → Auth → Add user","error");
@@ -2435,7 +2454,7 @@ function UsersMgmt({ users, curUser, showToast }) {
         <div><div style={{fontSize:18,fontWeight:600,color:"#111"}}>จัดการ User</div><div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>{users.length} บัญชี</div></div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <input ref={xlsxRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleXlsxImport}/>
-          <button onClick={async()=>{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const ws=XLSX.utils.aoa_to_sheet([["ชื่อ-สกุล","อีเมล์","แผนก","สิทธิ์"],["สมชาย ใจดี","somchai@company.com","IT","user"]]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Users");XLSX.writeFile(wb,"user_template.xlsx");}} style={{...BTN_GRAY,padding:"6px 12px",fontSize:12}}>⬇ Template</button>
+          <button onClick={async()=>{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const ws=XLSX.utils.aoa_to_sheet([["ชื่อ-สกุล","username","รหัสผ่าน","แผนก","สิทธิ์"],["สมชาย ใจดี","somchai","123456","IT","user"]]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Users");XLSX.writeFile(wb,"user_template.xlsx");}} style={{...BTN_GRAY,padding:"6px 12px",fontSize:12}}>⬇ Template</button>
           <button onClick={()=>xlsxRef.current?.click()} style={{padding:"7px 14px",background:"#ECFDF5",color:"#065F46",border:"1px solid #A7F3D0",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>📥 Import Excel</button>
           <button onClick={()=>setEditing(blank)} style={BTN_GOLD}>+ เพิ่ม User</button>
         </div>
@@ -2445,7 +2464,7 @@ function UsersMgmt({ users, curUser, showToast }) {
       </div>
       <div style={{background:"#fff",border:"1px solid #F3F4F6",borderRadius:10,overflow:"hidden"}}>
         <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr 1fr 1fr auto",padding:"8px 16px",borderBottom:"1px solid #F3F4F6",background:"#F9FAFB"}}>
-          {["ชื่อ","อีเมล์","แผนก","สิทธิ์","การมองเห็น","สถานะ",""].map((h,i)=><div key={i} style={{fontSize:11,fontWeight:600,color:"#9CA3AF"}}>{h}</div>)}
+          {["ชื่อ","Username","แผนก","สิทธิ์","การมองเห็น","สถานะ",""].map((h,i)=><div key={i} style={{fontSize:11,fontWeight:600,color:"#9CA3AF"}}>{h}</div>)}
         </div>
         {users.map(u=>{
           const scope = u.viewScope||"dept";
@@ -2457,7 +2476,7 @@ function UsersMgmt({ users, curUser, showToast }) {
           return (
           <div key={u.id} style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr 1fr 1fr auto",padding:"10px 16px",borderBottom:"1px solid #F3F4F6",alignItems:"center",opacity:u.active?1:.45}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}><Avatar userId={u.id} users={users} size={26}/><span style={{fontSize:12,fontWeight:u.id===curUser.id?600:400,color:"#374151"}}>{u.name}{u.id===curUser.id&&<span style={{fontSize:10,color:GOLD,marginLeft:4}}>(คุณ)</span>}</span></div>
-            <div style={{fontSize:12,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.email}</div>
+            <div style={{fontSize:12,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{loginIdFromUser(u)}</div>
             <div style={{fontSize:12,color:"#374151"}}>{u.dept||"-"}</div>
             <div><RoleBadge role={u.role}/></div>
             <div><span style={{fontSize:10,fontWeight:500,color:scopeInfo.c,background:scopeInfo.bg,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap"}}>{scopeInfo.l}</span></div>
@@ -2478,7 +2497,8 @@ function UsersMgmt({ users, curUser, showToast }) {
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
             <Field label="ชื่อ-สกุล *"><input value={editing.name} onChange={e=>setEditing(p=>({...p,name:e.target.value}))} style={IS}/></Field>
             <Field label="แผนก"><input value={editing.dept||""} onChange={e=>setEditing(p=>({...p,dept:e.target.value}))} style={IS}/></Field>
-            <div style={{gridColumn:"1/-1"}}><Field label="อีเมล์ *"><input value={editing.email} onChange={e=>setEditing(p=>({...p,email:e.target.value}))} style={IS}/></Field></div>
+            <div style={{gridColumn:"1/-1"}}><Field label="Username *"><input value={editing.loginId||loginIdFromUser(editing)} onChange={e=>setEditing(p=>({...p,loginId:e.target.value}))} style={IS} disabled={!!editing.id}/></Field></div>
+            {!editing.id&&<div style={{gridColumn:"1/-1"}}><Field label="รหัสผ่าน *"><input type="password" value={editing.password||""} onChange={e=>setEditing(p=>({...p,password:e.target.value}))} style={IS}/></Field></div>}
             <Field label="สิทธิ์">
               <select value={editing.role} onChange={e=>setEditing(p=>({...p,role:e.target.value}))} style={IS}>
                 <option value="superadmin">Super Admin</option>
@@ -2522,8 +2542,8 @@ function UsersMgmt({ users, curUser, showToast }) {
           <div style={{fontSize:15,fontWeight:600,marginBottom:4,color:"#111"}}>📥 ตรวจสอบก่อน Import</div>
           <div style={{fontSize:12,color:"#9CA3AF",marginBottom:14}}>พบ {importPreview.length} รายการ</div>
           <div style={{background:"#F9FAFB",borderRadius:8,overflow:"hidden",border:"1px solid #F3F4F6",marginBottom:16}}>
-            <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr",padding:"7px 12px",borderBottom:"1px solid #F3F4F6",background:"#F3F4F6"}}>{["ชื่อ-สกุล","อีเมล์","แผนก","สิทธิ์"].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:"#6B7280"}}>{h}</div>)}</div>
-            {importPreview.map((r,i)=>{const isDup=!!users.find(u=>u.email===r.email);return <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr",padding:"7px 12px",borderBottom:"1px solid #F3F4F6",background:isDup?"#FFFBEB":"#fff"}}><div style={{fontSize:12,color:"#374151"}}>{r.name}{isDup&&<span style={{fontSize:10,color:"#B45309"}}> (อัปเดต)</span>}</div><div style={{fontSize:11,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.email}</div><div style={{fontSize:12,color:"#374151"}}>{r.dept||"-"}</div><div><RoleBadge role={r.role}/></div></div>;})}
+            <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr",padding:"7px 12px",borderBottom:"1px solid #F3F4F6",background:"#F3F4F6"}}>{["ชื่อ-สกุล","Username","แผนก","สิทธิ์"].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:"#6B7280"}}>{h}</div>)}</div>
+            {importPreview.map((r,i)=>{const isDup=!!users.find(u=>(u.loginId||loginIdFromUser(u))===r.loginId||u.email===r.email);return <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr",padding:"7px 12px",borderBottom:"1px solid #F3F4F6",background:isDup?"#FFFBEB":"#fff"}}><div style={{fontSize:12,color:"#374151"}}>{r.name}{isDup&&<span style={{fontSize:10,color:"#B45309"}}> (อัปเดต)</span>}</div><div style={{fontSize:11,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.loginId}</div><div style={{fontSize:12,color:"#374151"}}>{r.dept||"-"}</div><div><RoleBadge role={r.role}/></div></div>;})}
           </div>
           <div style={{display:"flex",gap:8}}><button onClick={confirmImport} style={{...BTN_GOLD,flex:1,padding:"10px"}}>✓ ยืนยัน Import</button><button onClick={()=>setImportPreview(null)} style={{flex:1,padding:"10px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button></div>
         </div>
