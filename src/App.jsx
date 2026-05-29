@@ -549,7 +549,100 @@ function Toggle({value,onChange}){
   </div>;
 }
 
-// [5] CategoryField — handles "อื่นๆ" custom input ───────────�// [1] ProfileModal — view/edit profile + signature ────────────────────────────
+// [5] CategoryField — handles "อื่นๆ" custom input ────────────────────────────
+function CategoryField({ value, onChange }) {
+  const isCustom = value && !BASE_CATEGORIES.includes(value);
+  const selVal   = isCustom ? "อื่นๆ" : (value || "ทั่วไป");
+  return (
+    <div style={{display:"flex",gap:8,alignItems:"flex-start",flexWrap:"wrap"}}>
+      <select value={selVal} onChange={e=>{
+        if (e.target.value!=="อื่นๆ") onChange(e.target.value);
+        else onChange("อื่นๆ:");
+      }} style={{...IS,width:"auto",flex:"0 0 auto"}}>
+        {BASE_CATEGORIES.map(c=><option key={c}>{c}</option>)}
+      </select>
+      {(selVal==="อื่นๆ"||isCustom) && (
+        <input value={isCustom?value:value.replace("อื่นๆ:","")} onChange={e=>onChange(e.target.value||"อื่นๆ")}
+          placeholder="ระบุหมวดหมู่..." style={{...IS,flex:1,minWidth:120}}/>
+      )}
+    </div>
+  );
+}
+
+// [1] SignaturePad — draw or upload signature ──────────────────────────────────
+function SignaturePad({ value, onChange }) {
+  const canvasRef = useRef();
+  const drawing   = useRef(false);
+  const fileRef   = useRef();
+
+  useEffect(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
+    if (value) { const img=new Image(); img.onload=()=>ctx.drawImage(img,0,0); img.src=value; }
+  }, []);
+
+  const getPos = (e, canvas) => {
+    const r = canvas.getBoundingClientRect();
+    const src = e.touches?.[0] || e;
+    return { x: (src.clientX-r.left)*(canvas.width/r.width), y: (src.clientY-r.top)*(canvas.height/r.height) };
+  };
+  const startDraw = e => {
+    drawing.current=true;
+    const canvas=canvasRef.current; const ctx=canvas.getContext("2d"); const pos=getPos(e,canvas);
+    ctx.beginPath(); ctx.moveTo(pos.x,pos.y);
+    e.preventDefault();
+  };
+  const draw = e => {
+    if (!drawing.current) return;
+    const canvas=canvasRef.current; const ctx=canvas.getContext("2d"); const pos=getPos(e,canvas);
+    ctx.lineWidth=2; ctx.lineCap="round"; ctx.strokeStyle="#111";
+    ctx.lineTo(pos.x,pos.y); ctx.stroke();
+    e.preventDefault();
+  };
+  const endDraw = () => {
+    drawing.current=false;
+    onChange(canvasRef.current.toDataURL("image/png"));
+  };
+  const clear = () => {
+    const canvas=canvasRef.current; const ctx=canvas.getContext("2d");
+    ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
+    onChange(null);
+  };
+  const handleUpload = e => {
+    const f=e.target.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=ev=>{
+      const img=new Image(); img.onload=()=>{
+        const canvas=canvasRef.current; const ctx=canvas.getContext("2d");
+        ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
+        const scale=Math.min(canvas.width/img.width,canvas.height/img.height);
+        const w=img.width*scale; const h=img.height*scale;
+        ctx.drawImage(img,(canvas.width-w)/2,(canvas.height-h)/2,w,h);
+        onChange(canvas.toDataURL("image/png"));
+      }; img.src=ev.target.result;
+    };
+    r.readAsDataURL(f); e.target.value="";
+  };
+  return (
+    <div>
+      <div style={{border:"1px solid #E5E7EB",borderRadius:8,overflow:"hidden",background:"#fff",marginBottom:8,touchAction:"none"}}>
+        <canvas ref={canvasRef} width={320} height={120}
+          style={{display:"block",cursor:"crosshair",width:"100%"}}
+          onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+          onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}/>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={clear} style={BTN_GRAY}>ล้าง</button>
+        <button onClick={()=>fileRef.current?.click()} style={BTN_GRAY}>📁 อัปโหลดรูป</button>
+        <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleUpload}/>
+      </div>
+      <div style={{fontSize:10,color:"#9CA3AF",marginTop:4}}>วาดลายเซ็นในกล่องด้านบน หรืออัปโหลดไฟล์รูปภาพ</div>
+    </div>
+  );
+}
+
+// [1] ProfileModal — view/edit profile + signature ────────────────────────────
 function ProfileModal({ curUser, onClose, showToast }) {
   const [sig, setSig]   = useState(curUser.signature || null);
   const [name, setName] = useState(curUser.name || "");
@@ -634,84 +727,6 @@ function ProfileModal({ curUser, onClose, showToast }) {
           )}
         </div>
 
-        {sig && (
-          <div style={{marginBottom:12}}>
-            <div style={{fontSize:11,color:"#6B7280",marginBottom:4}}>ตัวอย่างลายเซ็น:</div>
-            <img src={sig} alt="sig" style={{maxHeight:60,border:"1px solid #F3F4F6",borderRadius:6,background:"#F9FAFB",padding:4}}/>
-          </div>
-        )}
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={save} disabled={saving} style={{...BTN_GOLD,flex:1,padding:"10px",opacity:saving?.7:1}}>{saving?"กำลังบันทึก...":"บันทึก"}</button>
-          <button onClick={onClose} style={{flex:1,padding:"10px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-st r=new FileReader();
-    r.onload=ev=>{
-      const img=new Image(); img.onload=()=>{
-        const canvas=canvasRef.current; const ctx=canvas.getContext("2d");
-        ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
-        const scale=Math.min(canvas.width/img.width,canvas.height/img.height);
-        const w=img.width*scale; const h=img.height*scale;
-        ctx.drawImage(img,(canvas.width-w)/2,(canvas.height-h)/2,w,h);
-        onChange(canvas.toDataURL("image/png"));
-      }; img.src=ev.target.result;
-    };
-    r.readAsDataURL(f); e.target.value="";
-  };
-  return (
-    <div>
-      <div style={{border:"1px solid #E5E7EB",borderRadius:8,overflow:"hidden",background:"#fff",marginBottom:8,touchAction:"none"}}>
-        <canvas ref={canvasRef} width={320} height={120}
-          style={{display:"block",cursor:"crosshair",width:"100%"}}
-          onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
-          onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}/>
-      </div>
-      <div style={{display:"flex",gap:6}}>
-        <button onClick={clear} style={BTN_GRAY}>ล้าง</button>
-        <button onClick={()=>fileRef.current?.click()} style={BTN_GRAY}>📁 อัปโหลดรูป</button>
-        <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleUpload}/>
-      </div>
-      <div style={{fontSize:10,color:"#9CA3AF",marginTop:4}}>วาดลายเซ็นในกล่องด้านบน หรืออัปโหลดไฟล์รูปภาพ</div>
-    </div>
-  );
-}
-
-// [1] ProfileModal — view/edit profile + signature ────────────────────────────
-function ProfileModal({ curUser, onClose, showToast }) {
-  const [sig, setSig]   = useState(curUser.signature || null);
-  const [name, setName] = useState(curUser.name || "");
-  const [lineId, setLineId] = useState(curUser.lineId || "");
-  const [saving, setSaving] = useState(false);
-  const save = async () => {
-    setSaving(true);
-    try { await patchUser(curUser.id, { name:name.trim()||curUser.name, signature:sig||null, lineId: lineId.trim() }); showToast("บันทึกโปรไฟล์แล้ว"); onClose(); }
-    catch { showToast("บันทึกไม่สำเร็จ","error"); }
-    finally { setSaving(false); }
-  };
-  return (
-    <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.5)"}}>
-      <div style={{background:"#fff",borderRadius:14,padding:24,width:420,boxShadow:"0 20px 60px rgba(0,0,0,.2)",maxHeight:"90vh",overflowY:"auto"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-          <div style={{fontSize:15,fontWeight:600,color:"#111"}}>โปรไฟล์ของฉัน</div>
-          <button onClick={onClose} style={{...BTN_X,fontSize:16}}>✕</button>
-        </div>
-        <div style={{textAlign:"center",marginBottom:16}}>
-          <Avatar userId={curUser.id} users={[curUser]} size={56}/>
-          <div style={{fontSize:13,fontWeight:500,color:"#111",marginTop:8}}>{curUser.email}</div>
-          <RoleBadge role={curUser.role}/>
-        </div>
-        <Field label="ชื่อ-สกุล">
-          <input value={name} onChange={e=>setName(e.target.value)} style={IS}/>
-        </Field>
-        <Field label="ลายเซ็น">
-          <SignaturePad value={sig} onChange={setSig}/>
-        </Field>
-        <Field label="LINE User ID">
-          <input value={lineId} onChange={e=> setLineId(e.target.value)} style={IS} />
-        </Field>
         {sig && (
           <div style={{marginBottom:12}}>
             <div style={{fontSize:11,color:"#6B7280",marginBottom:4}}>ตัวอย่างลายเซ็น:</div>
