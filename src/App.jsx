@@ -220,9 +220,13 @@ async function sendApproverEmail(cfg, memo, level, users) {
     } catch(e) { console.warn("[sendApproverEmail]", toEmail, e.message); }
 
     // ── LINE OA push ให้ผู้อนุมัติโดยตรง ────────────────────────────────
+    console.log("[LINE DEBUG] cfg.line:", JSON.stringify(cfg.line));
+    console.log("[LINE DEBUG] ap:", JSON.stringify(ap));
     if (cfg.line?.enabled && cfg.line?.channelAccessToken) {
       const approverUser = users.find(u => u.id === ap.userId);
       const lineId = approverUser?.lineId;
+      console.log("[LINE DEBUG] approverUser found:", JSON.stringify(approverUser));
+      console.log("[LINE DEBUG] lineId:", lineId);
       if (lineId) {
         try {
           const lineMsg = [
@@ -232,7 +236,7 @@ async function sendApproverEmail(cfg, memo, level, users) {
             `ขั้นที่ ${level.level||""} (${modeLabel}อนุมัติ)`,
             `\n\uD83D\uDD17 กดลิงก์เพื่อเข้าระบบและอนุมัติ:\n${appUrl}`,
           ].join("\n");
-          await fetch("/api/approval-notify", {
+          const resp = await fetch("/api/approval-notify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -241,8 +245,14 @@ async function sendApproverEmail(cfg, memo, level, users) {
               channelAccessToken: cfg.line.channelAccessToken,
             }),
           });
+          const result = await resp.json();
+          console.log("[LINE DEBUG] API response:", resp.status, JSON.stringify(result));
         } catch(e) { console.warn("[sendApproverEmail] LINE", lineId, e.message); }
+      } else {
+        console.warn("[LINE DEBUG] lineId ว่าง — ผู้อนุมัติไม่มี lineId ใน Firebase");
       }
+    } else {
+      console.warn("[LINE DEBUG] LINE ไม่ enabled หรือไม่มี channelAccessToken");
     }
     // ────────────────────────────────────────────────────────────────────
   }
