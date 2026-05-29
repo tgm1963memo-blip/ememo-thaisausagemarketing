@@ -3271,18 +3271,18 @@ export default function EMemo() {
         }
       }
         
-        // Duplicate LINE notification block removed
-        const nextApprovers = (levels[newLvIdx].approvers || []);
-        for (const ap of nextApprovers) {
-          const u = users.find(u => u.id === ap.userId || u.email === ap.email);
-          if (u && u.lineId) {
-            try {
-              await fetch("/api/approval-notify",{method:"POST",headers:{"Content-Type":"application/json"},
-                body:JSON.stringify({to:u.lineId,message:`📣 มีเมโมใหม่ที่ต้องการการอนุมัติ: ${memo.title}`,channelAccessToken:cfg.line.channelAccessToken})});
-            } catch(e){ console.warn("[approval-notify]", u.lineId, e.message); }
-          }
-        }
-      }
+
+
+
+
+
+
+
+
+
+
+
+
   };
 
   const rejectMemo = async (memo, comment) => {
