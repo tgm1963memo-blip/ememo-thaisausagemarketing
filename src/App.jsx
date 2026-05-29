@@ -266,6 +266,20 @@ async function sendApprovedNotifications(cfg, memo, users) {
       } catch(e) { console.warn("[sendApprovedNotifications]", toEmail, e.message); }
     }
   }
+  // Notify memo creator via LINE OA if enabled and creator has lineId
+  if (cfg.line?.enabled && memo.notify?.postToLine && creator.lineId) {
+    try {
+      await fetch('/api/approval-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: creator.lineId,
+          message: `✅ Memo ได้รับการอนุมัติครบแล้ว: ${memo.title}\n${appUrl}/?memoId=${memo.id}`,
+          channelAccessToken: cfg.line.channelAccessToken,
+        })
+      });
+    } catch (e) { console.warn('[sendApprovedNotifications] LINE creator', creator.lineId, e.message); }
+  }
 
   if (cfg.teams?.enabled && cfg.teams?.webhookUrl && memo.notify?.postToTeams) {
     try { await fetch(cfg.teams.webhookUrl,{method:"POST",headers:{"Content-Type":"application/json"},
