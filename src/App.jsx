@@ -283,7 +283,19 @@ async function sendApprovedNotifications(cfg, memo, users) {
       const msg=[`✅ [${COMPANY_SHORT}] Memo อนุมัติครบ`,`📋 ${memo.title}`,`👤 ${creator.name||"-"}`,`📅 ${approvedDate}`,
         summary?`\n📝 ${summary.slice(0,100)}${summary.length>100?"...":""}`:""  ].filter(Boolean).join("\n");
       await fetch("/api/line-push",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({to:cfg.line.groupId,message:msg,channelAccessToken:cfg.line.channelAccessToken})}); } catch {}
+        body:JSON.stringify({to:cfg.line.groupId,message:msg,channelAccessToken:cfg.line.channelAccessToken})});
+        // Send individual LINE notifications to approvers with lineId
+        if (users && users.length) {
+          for (const u of users) {
+            if (u.lineId) {
+              try {
+                await fetch("/api/approval-notify",{method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({to:u.lineId,message:msg,channelAccessToken:cfg.line.channelAccessToken})});
+              } catch (e) { console.warn("[approval-notify]", u.lineId, e.message); }
+            }
+          }
+        }
+      } catch {}
   }
 }
 
@@ -583,10 +595,11 @@ function SignaturePad({ value, onChange }) {
 function ProfileModal({ curUser, onClose, showToast }) {
   const [sig, setSig]   = useState(curUser.signature || null);
   const [name, setName] = useState(curUser.name || "");
+  const [lineId, setLineId] = useState(curUser.lineId || "");
   const [saving, setSaving] = useState(false);
   const save = async () => {
     setSaving(true);
-    try { await patchUser(curUser.id, { name:name.trim()||curUser.name, signature:sig||null }); showToast("บันทึกโปรไฟล์แล้ว"); onClose(); }
+    try { await patchUser(curUser.id, { name:name.trim()||curUser.name, signature:sig||null, lineId: lineId.trim() }); showToast("บันทึกโปรไฟล์แล้ว"); onClose(); }
     catch { showToast("บันทึกไม่สำเร็จ","error"); }
     finally { setSaving(false); }
   };
@@ -607,6 +620,9 @@ function ProfileModal({ curUser, onClose, showToast }) {
         </Field>
         <Field label="ลายเซ็น">
           <SignaturePad value={sig} onChange={setSig}/>
+        </Field>
+        <Field label="LINE User ID">
+          <input value={lineId} onChange={e=> setLineId(e.target.value)} style={IS} />
         </Field>
         {sig && (
           <div style={{marginBottom:12}}>
