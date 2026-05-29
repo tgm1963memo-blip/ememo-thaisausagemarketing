@@ -218,6 +218,33 @@ async function sendApproverEmail(cfg, memo, level, users) {
         html,
       });
     } catch(e) { console.warn("[sendApproverEmail]", toEmail, e.message); }
+
+    // ── LINE OA push ให้ผู้อนุมัติโดยตรง ────────────────────────────────
+    if (cfg.line?.enabled && cfg.line?.channelAccessToken) {
+      const approverUser = users.find(u => u.id === ap.userId);
+      const lineId = approverUser?.lineId;
+      if (lineId) {
+        try {
+          const lineMsg = [
+            `\uD83D\uDCCB [${COMPANY_SHORT}] มีเอกสารรออนุมัติ`,
+            `ชื่อเรื่อง: ${memo.title}`,
+            `ผู้สร้าง: ${creator.name||"-"}`,
+            `ขั้นที่ ${level.level||""} (${modeLabel}อนุมัติ)`,
+            `\n\uD83D\uDD17 กดลิงก์เพื่อเข้าระบบและอนุมัติ:\n${appUrl}`,
+          ].join("\n");
+          await fetch("/api/approval-notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: lineId,
+              message: lineMsg,
+              channelAccessToken: cfg.line.channelAccessToken,
+            }),
+          });
+        } catch(e) { console.warn("[sendApproverEmail] LINE", lineId, e.message); }
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────
   }
 }
 
