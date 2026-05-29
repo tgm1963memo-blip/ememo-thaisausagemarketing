@@ -2573,7 +2573,7 @@ const DEFAULT_NOTIFY = {
   email:     { enabled:false },
   teams:     { enabled:false, webhookUrl:"" },
   powerauto: { enabled:false, webhookUrl:"" },
-  line:      { enabled:false, channelAccessToken:"", groupId:"" },
+  line:      { enabled:true, channelAccessToken:"", groupId:"" },
 };
 
 function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
