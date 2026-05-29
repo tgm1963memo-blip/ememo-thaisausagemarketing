@@ -3248,7 +3248,41 @@ export default function EMemo() {
     showToast(allDone?"✅ อนุมัติครบทุกลำดับ กำลังส่งแจ้งเตือน...":lvDone?"อนุมัติลำดับนี้แล้ว ส่งต่อลำดับถัดไป":"อนุมัติแล้ว รอผู้อนุมัติคนอื่นในลำดับเดียวกัน");
     if(allDone) await sendApprovedNotifications(notifyConfig,{...memo,...patch},users);
     // [6] email next level approvers
-    else if(lvDone&&levels[newLvIdx]) await sendApproverEmail(notifyConfig,{...memo,...patch},levels[newLvIdx],users);
+    else if(lvDone && levels[newLvIdx]) {
+        // Duplicate approval notification block removed
+        // Notify next level approvers via LINE if they have a LINE User ID
+        const nextApprovers = (levels[newLvIdx].approvers || []);
+        const appUrl = window.location.origin;
+        for (const ap of nextApprovers) {
+          const u = users.find(u => u.id === ap.userId || u.email === ap.email);
+          if (u && u.lineId) {
+            try {
+              await fetch("/api/approval-notify",{
+                method:"POST",
+                headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({
+                  to:u.lineId,
+                  message:`📣 มีเมโมใหม่ที่ต้องการการอนุมัติ: ${memo.title}\n${appUrl}/?memoId=${memo.id}`,
+                  channelAccessToken:cfg.line.channelAccessToken
+                })
+              });
+            } catch(e){ console.warn("[approval-notify]", u.lineId, e.message); }
+          }
+        }
+      }
+        // Duplicate block removed
+        // Duplicate LINE notification block removed
+        const nextApprovers = (levels[newLvIdx].approvers || []);
+        for (const ap of nextApprovers) {
+          const u = users.find(u => u.id === ap.userId || u.email === ap.email);
+          if (u && u.lineId) {
+            try {
+              await fetch("/api/approval-notify",{method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({to:u.lineId,message:`📣 มีเมโมใหม่ที่ต้องการการอนุมัติ: ${memo.title}`,channelAccessToken:cfg.line.channelAccessToken})});
+            } catch(e){ console.warn("[approval-notify]", u.lineId, e.message); }
+          }
+        }
+      }
   };
 
   const rejectMemo = async (memo, comment) => {
