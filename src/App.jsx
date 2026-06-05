@@ -172,6 +172,35 @@ async function assignDocNo(memo, users, docCounters) {
 // Strip HTML tags helper for email plain-text fields
 const stripHtml = s => (s||"").replace(/<br\s*\/?>/gi,"\n").replace(/<[^>]+>/g,"").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").trim();
 
+const normalizeEmail = email => String(email || "").trim().toLowerCase();
+
+function buildApprovedEmailRecipients(memo, users) {
+  const recipients = new Map();
+  const addRecipient = ({ email, name, userId, source }) => {
+    const normalized = normalizeEmail(email);
+    if (!normalized) return;
+    const existing = recipients.get(normalized);
+    if (existing) {
+      recipients.set(normalized, {
+        ...existing,
+        source: existing.source === "creator" || source === "creator" ? "creator" : existing.source,
+      });
+      return;
+    }
+    recipients.set(normalized, { email: String(email).trim(), name: name || "", userId: userId || null, source });
+  };
+
+  const creator = users.find(u => u.id === memo.createdBy) || {};
+  addRecipient({ email: creator.email, name: creator.name, userId: creator.id, source: "creator" });
+
+  for (const email of memo.notify?.emailList || []) {
+    const u = users.find(user => normalizeEmail(user.email) === normalizeEmail(email)) || {};
+    addRecipient({ email, name: u.name || email, userId: u.id, source: "notifyList" });
+  }
+
+  return [...recipients.values()];
+}
+
 async function sendApproverEmail(cfg, memo, level, users) {
   if (!cfg.email?.enabled) return;
   const creator   = users.find(u => u.id === memo.createdBy) || {};
@@ -263,9 +292,16 @@ async function sendApprovedNotifications(cfg, memo, users) {
   const approvedDate = new Date().toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
   const summary      = stripHtml(memo.content||"").slice(0,200);
   const appUrl       = window.location.origin;
+  const approvedEmailRecipients = buildApprovedEmailRecipients(memo, users);
+  const emailReceipts = [];
 
   // ส่งอีเมล์ผ่าน SMTP บริษัท
-  if (cfg.email?.enabled && memo.notify?.emailList?.length) {
+  if (!cfg.email?.enabled) {
+    const skippedAt = new Date().toISOString();
+    for (const recipient of approvedEmailRecipients) {
+      emailReceipts.push({ ...recipient, status: "skipped", sentAt: skippedAt, error: "Email notification is disabled" });
+    }
+  } else if (approvedEmailRecipients.length) {
     const html = `
       <div style="font-family:'Noto Sans Thai',Sarabun,sans-serif;max-width:560px;margin:0 auto;">
         <div style="background:#1E3A5F;padding:20px 28px;border-radius:8px 8px 0 0;">
@@ -293,14 +329,19 @@ async function sendApprovedNotifications(cfg, memo, users) {
           </div>
         </div>
       </div>`;
-    for (const toEmail of memo.notify.emailList) {
+    for (const recipient of approvedEmailRecipients) {
+      const sentAt = new Date().toISOString();
       try {
-        await sendMemoEmail({
-          to: toEmail,
+        const result = await sendMemoEmail({
+          to: recipient.email,
           subject: `[E-Memo] ✅ อนุมัติแล้ว: ${memo.title}`,
           html,
         });
-      } catch(e) { console.warn("[sendApprovedNotifications]", toEmail, e.message); }
+        emailReceipts.push({ ...recipient, status: "sent", sentAt, messageId: result?.messageId || null });
+      } catch(e) {
+        emailReceipts.push({ ...recipient, status: "failed", sentAt, error: e.message || String(e) });
+        console.warn("[sendApprovedNotifications]", recipient.email, e.message);
+      }
     }
   }
   // Notify memo creator via LINE OA if enabled and creator has lineId
@@ -348,6 +389,11 @@ async function sendApprovedNotifications(cfg, memo, users) {
         }
       } catch {}
   }
+
+  return {
+    sentAt: new Date().toISOString(),
+    recipients: emailReceipts,
+  };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1139,7 +1185,7 @@ function RouteEditor({ route, users, curUser, onChange, onSave, onCancel }) {
   );
 }
 
-function NotifyPanel({ notify, setNotify, users, notifyConfig }) {
+function NotifyPanel({ notify, setNotify, users, notifyConfig, curUser }) {
   const [emailIn, setEmailIn] = useState("");
   const addEmail = () => { const e=emailIn.trim(); if(!e||!e.includes("@")||(notify.emailList||[]).includes(e))return; setNotify(p=>({...p,emailList:[...(p.emailList||[]),e]})); setEmailIn(""); };
   const remEmail = e => setNotify(p=>({...p,emailList:(p.emailList||[]).filter(x=>x!==e)}));
@@ -1153,6 +1199,13 @@ function NotifyPanel({ notify, setNotify, users, notifyConfig }) {
       <div style={{marginBottom:10}}>
         <div style={{fontSize:11,fontWeight:600,color:"#6B7280",marginBottom:5}}>✉ อีเมล์</div>
         {notifyConfig.email?.enabled ? (<>
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"#ECFDF5",border:"1px solid #A7F3D0",borderRadius:6,marginBottom:6}}>
+            <span>✉</span>
+            <span style={{flex:1,fontSize:11,color:"#065F46",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              ผู้สร้างเอกสารจะได้รับอีเมลอัตโนมัติหลังอนุมัติครบ{curUser?.email?` (${curUser.email})`:""}
+            </span>
+            <span style={{fontSize:10,fontWeight:700,color:"#065F46"}}>AUTO</span>
+          </div>
           <div style={{display:"flex",gap:6,marginBottom:5}}>
             <input value={emailIn} onChange={e=>setEmailIn(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addEmail()} placeholder="กรอกอีเมล์..." style={{flex:1,padding:"5px 8px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12}}/>
             <button onClick={addEmail} style={BTN_GOLD}>เพิ่ม</button>
@@ -2226,7 +2279,7 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, route
             )}
             <WorkflowLevelBuilder levels={levels} setLevels={setLevels} users={users} curUser={curUser}/>
           </Section>
-          <NotifyPanel notify={editMemo.notify||{emailList:[],postToTeams:false,postToPowerAuto:false,postToLine:false}} setNotify={setNotify} users={users} notifyConfig={notifyConfig}/>
+          <NotifyPanel notify={editMemo.notify||{emailList:[],postToTeams:false,postToPowerAuto:false,postToLine:false}} setNotify={setNotify} users={users} notifyConfig={notifyConfig} curUser={curUser}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <button onClick={()=>onSubmit(false)} style={{...BTN_GOLD,width:"100%",padding:"11px",fontSize:13}}>{isRecall?"ส่งกลับเพื่ออนุมัติ":"ส่งเพื่ออนุมัติ"}</button>
             <button onClick={()=>onSubmit(true)}  style={{padding:"11px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>บันทึกร่าง</button>
@@ -2285,6 +2338,13 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
     ...(notifyConfig.powerauto?.enabled&&notify.postToPowerAuto?["🟣 SharePoint"]:[]),
     ...(notifyConfig.line?.enabled&&notify.postToLine?["🟢 LINE Group"]:[]),
   ];
+  const canViewEmailNotifications = isCreator || ["admin","superadmin"].includes(curUser.role);
+  const approvedEmailNotifications = memo.approvedEmailNotifications || null;
+  const emailStatusMeta = {
+    sent: { label:"ส่งสำเร็จ", color:"#065F46", bg:"#ECFDF5", border:"#A7F3D0" },
+    failed: { label:"ส่งไม่สำเร็จ", color:"#991B1B", bg:"#FFF1F1", border:"#FECACA" },
+    skipped: { label:"ข้าม", color:"#92400E", bg:"#FFFBEB", border:"#FDE68A" },
+  };
   const tplList=Object.values(pdfTemplates||{}).filter(t=>t.fileBase64);
 
   // Feature 4: approver adds a next level
@@ -2430,6 +2490,30 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
             {!(memo.workflowLevels||[]).length&&<div style={{fontSize:12,color:"#9CA3AF",textAlign:"center"}}>ยังไม่มีขั้นตอนการอนุมัติ</div>}
           </Section>
           {notifySummary.length>0&&<Section title="แจ้งเตือนเมื่ออนุมัติ"><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{notifySummary.map(s=><span key={s} style={{fontSize:11,background:"#F9FAFB",border:"1px solid #F3F4F6",borderRadius:5,padding:"3px 8px"}}>{s}</span>)}</div></Section>}
+          {canViewEmailNotifications && approvedEmailNotifications && (
+            <Section title="สถานะอีเมลแจ้งผลอนุมัติ">
+              <div style={{fontSize:10,color:"#9CA3AF",marginBottom:8}}>
+                อัปเดตล่าสุด: {approvedEmailNotifications.sentAt ? fmtDate(approvedEmailNotifications.sentAt) : "-"}
+              </div>
+              {(approvedEmailNotifications.recipients||[]).length ? (
+                (approvedEmailNotifications.recipients||[]).map((r,i)=>{
+                  const meta = emailStatusMeta[r.status] || { label:r.status||"-", color:"#6B7280", bg:"#F9FAFB", border:"#E5E7EB" };
+                  return (
+                    <div key={`${r.email||i}-${i}`} style={{padding:"8px 0",borderBottom:i<(approvedEmailNotifications.recipients||[]).length-1?"1px solid #F3F4F6":"none"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{flex:1,minWidth:0,fontSize:12,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name||r.email||"-"}</span>
+                        <span style={{fontSize:10,fontWeight:700,color:meta.color,background:meta.bg,border:`1px solid ${meta.border}`,borderRadius:5,padding:"2px 6px",whiteSpace:"nowrap"}}>{meta.label}</span>
+                      </div>
+                      <div style={{fontSize:10,color:"#9CA3AF",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.email||"-"}{r.source==="creator"?" • ผู้สร้าง":""}</div>
+                      {r.error&&<div style={{fontSize:10,color:"#991B1B",marginTop:2,wordBreak:"break-word"}}>{r.error}</div>}
+                    </div>
+                  );
+                })
+              ) : (
+                <div style={{fontSize:11,color:"#9CA3AF"}}>ไม่มีรายการอีเมลที่ต้องส่ง</div>
+              )}
+            </Section>
+          )}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {(memo.status==="approved"||memo.status==="pending"||memo.status==="rejected")&&(
               tplList.length>0 ? (
@@ -3349,7 +3433,14 @@ export default function EMemo() {
     await patchMemo(memo.id,patch);
     setModal(null); setSelId(memo.id);
     showToast(allDone?"✅ อนุมัติครบทุกลำดับ กำลังส่งแจ้งเตือน...":lvDone?"อนุมัติลำดับนี้แล้ว ส่งต่อลำดับถัดไป":"อนุมัติแล้ว รอผู้อนุมัติคนอื่นในลำดับเดียวกัน");
-    if(allDone) await sendApprovedNotifications(notifyConfig,{...memo,...patch},users);
+    if(allDone) {
+      try {
+        const approvedEmailNotifications = await sendApprovedNotifications(notifyConfig,{...memo,...patch},users);
+        await patchMemo(memo.id,{ approvedEmailNotifications });
+      } catch(e) {
+        console.warn("[approvedEmailNotifications]", e.message);
+      }
+    }
     // [6] email next level approvers
     else if(lvDone && levels[newLvIdx]) {
         // Duplicate approval notification block removed
