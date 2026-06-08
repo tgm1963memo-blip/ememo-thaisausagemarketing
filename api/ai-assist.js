@@ -73,15 +73,59 @@ ${content || "(ไม่มีเนื้อหา)"}
     const text = data.choices?.[0]?.message?.content;
     if (!text) throw new Error("ไม่ได้รับผลลัพธ์จาก Groq");
 
+    // Helper: extract JSON substring while honoring string quoting and escapes,
+    // then sanitize control characters inside string literals so JSON.parse succeeds
+    function extractAndSanitizeJSON(src) {
+      if (!src || typeof src !== 'string') return null;
+      const start = src.indexOf('{');
+      if (start === -1) return null;
+      let inString = false;
+      let escape = false;
+      let depth = 0;
+      let endIndex = -1;
+      for (let i = start; i < src.length; i++) {
+        const ch = src[i];
+        if (escape) { escape = false; continue; }
+        if (ch === '\\') { escape = true; continue; }
+        if (ch === '"') { inString = !inString; continue; }
+        if (!inString) {
+          if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) { endIndex = i; break; } }
+        }
+      }
+      const raw = endIndex >= 0 ? src.slice(start, endIndex + 1) : src.slice(start);
+
+      // Sanitize control characters that are invalid inside JSON string literals
+      let out = '';
+      inString = false; escape = false;
+      for (let i = 0; i < raw.length; i++) {
+        const ch = raw[i];
+        if (escape) { out += ch; escape = false; continue; }
+        if (ch === '\\') { out += ch; escape = true; continue; }
+        if (ch === '"') { inString = !inString; out += ch; continue; }
+        if (inString) {
+          if (ch === '\n') out += '\\n';
+          else if (ch === '\r') out += '\\r';
+          else if (ch === '\t') out += '\\t';
+          else {
+            const code = ch.charCodeAt(0);
+            if (code >= 0 && code < 32) out += '\\u' + ('000' + code.toString(16)).slice(-4);
+            else out += ch;
+          }
+        } else out += ch;
+      }
+      return out;
+    }
+
     if (mode === "summarize") {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+      const jsonStr = extractAndSanitizeJSON(text) || text;
+      const parsed = JSON.parse(jsonStr);
       return res.json(parsed);
     }
 
     if (mode === "write") {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+      const jsonStr = extractAndSanitizeJSON(text) || text;
+      const parsed = JSON.parse(jsonStr);
       return res.json({ content: parsed.content || text, suggestedTitle: parsed.suggestedTitle || "" });
     }
 

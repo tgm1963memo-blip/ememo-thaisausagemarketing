@@ -390,9 +390,17 @@ async function sendApprovedNotifications(cfg, memo, users) {
       } catch {}
   }
 
+  const sentAt = new Date().toISOString();
+  let status;
+  if (emailReceipts.length === 0) status = "skipped";
+  else if (emailReceipts.every(r => r.status === "sent" || r.status === "skipped")) status = "success";
+  else if (emailReceipts.every(r => r.status !== "sent")) status = "failed";
+  else status = "partial";
+
   return {
-    sentAt: new Date().toISOString(),
+    sentAt,
     recipients: emailReceipts,
+    status,
   };
 }
 
@@ -2615,7 +2623,53 @@ function UsersMgmt({ users, curUser, showToast }) {
   const [editing,setEditing]=useState(null); const [delConfirm,setDelConfirm]=useState(null); const [importPreview,setImportPreview]=useState(null);
   const xlsxRef=useRef(); const blank={name:"",loginId:"",password:"",email:"",dept:"",role:"user",active:true};
   const handleXlsxImport=async(e)=>{const file=e.target.files[0];if(!file)return;e.target.value="";try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:""});const parsed=rows.map(r=>{const name=String(r["ชื่อ-สกุล"]||r["name"]||"").trim();const loginId=normalizeLoginId(r["username"]||r["Username"]||r["loginId"]||String(name).replace(/\s+/g,"."));return{name,loginId,email:makeLoginEmail(loginId),password:String(r["รหัสผ่าน"]||r["password"]||"").trim(),dept:String(r["แผนก"]||r["dept"]||"").trim(),role:["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase())?String(r["สิทธิ์"]||r["role"]||"user").toLowerCase():"user",active:true};}).filter(r=>r.name&&r.loginId&&r.password.length>=6);if(!parsed.length){showToast("ไม่พบข้อมูลที่ถูกต้อง","error");return;}setImportPreview(parsed);}catch(err){showToast("อ่านไฟล์ไม่ได้: "+err.message,"error");}};
-  const confirmImport=async()=>{if(!importPreview)return;const existing=Object.fromEntries(users.map(u=>[u.id,u]));let added=0,updated=0,authFailed=0;for(const r of importPreview){const dup=users.find(u=>(u.loginId||loginIdFromUser(u))===r.loginId||u.email===r.email);if(dup){existing[dup.id]={...dup,name:r.name,loginId:r.loginId,email:r.email,dept:r.dept,role:r.role};updated++;}else{const id=newId("u");const {password,...userData}=r;existing[id]={...userData,id};added++;try{await createAuthUserREST(r.email,r.password);}catch(authErr){if(authErr.message!=="EMAIL_EXISTS"){authFailed++;console.warn("Auth failed for",r.loginId,authErr.message);}}}}await writeUsers(existing);const failMsg=authFailed>0?` (สร้าง Auth ไม่สำเร็จ ${authFailed} คน — ตรวจสอบ Firebase Console)`:"";showToast(`นำเข้าสำเร็จ: เพิ่ม ${added} คน, อัปเดต ${updated} คน${failMsg}`);setImportPreview(null);};
+  const confirmImport=async()=>{
+    if(!importPreview) return;
+    const existing = Object.fromEntries(users.map(u=>[u.id,u]));
+    let added=0, updated=0, authFailed=0;
+    const notifyEmails = [];
+    for (const r of importPreview) {
+      const dup = users.find(u => (u.loginId||loginIdFromUser(u))===r.loginId || u.email===r.email);
+      if (dup) {
+        existing[dup.id] = { ...dup, name: r.name, loginId: r.loginId, email: r.email, dept: r.dept, role: r.role };
+        updated++;
+      } else {
+        const id = newId("u");
+        const { password, ...userData } = r;
+        existing[id] = { ...userData, id };
+        added++;
+        // Try create Auth account; if success or already exists, queue reset-email
+        try {
+          await createAuthUserREST(r.email, r.password);
+          if (r.email) notifyEmails.push({ email: r.email, name: r.name });
+        } catch (authErr) {
+          if (authErr.message === "EMAIL_EXISTS") {
+            // Auth exists — still send reset link so user can set password
+            if (r.email) notifyEmails.push({ email: r.email, name: r.name });
+          } else {
+            authFailed++;
+            console.warn("Auth failed for", r.loginId, authErr.message);
+          }
+        }
+      }
+    }
+
+    await writeUsers(existing);
+
+    // Send reset emails to newly added users (best-effort)
+    for (const ne of notifyEmails) {
+      try {
+        await sendResetEmailREST(ne.email, ne.name, true);
+      } catch (e) {
+        console.warn('[confirmImport] sendResetEmailREST failed', ne.email, e.message || e);
+      }
+    }
+
+    const failMsg = authFailed>0 ? ` (สร้าง Auth ไม่สำเร็จ ${authFailed} คน — ตรวจสอบ Firebase Console)` : "";
+    showToast(`นำเข้าสำเร็จ: เพิ่ม ${added} คน, อัปเดต ${updated} คน${failMsg}`);
+    setImportPreview(null);
+  };
+
   const save=async()=>{
     const name = editing.name.trim();
     const loginId = normalizeLoginId(editing.loginId || editing.email || name.replace(/\s+/g,"."));
@@ -2634,9 +2688,11 @@ function UsersMgmt({ users, curUser, showToast }) {
       try{
         await createAuthUserREST(email, password);
         showToast("✅ เพิ่ม User แล้ว — ใช้ Username "+loginId+" เข้าสู่ระบบได้ทันที");
+        try { await sendResetEmailREST(email, name, true); showToast("ส่งอีเมลแจ้งการใช้งานให้ "+email+" แล้ว"); } catch(e){ console.warn('[save] sendResetEmailREST', e.message || e); }
       }catch(authErr){
         if(authErr.message==="EMAIL_EXISTS"){
           showToast("✅ เพิ่ม User แล้ว (มี Auth account อยู่แล้ว)");
+          try { await sendResetEmailREST(email, name, true); showToast("ส่งอีเมลแจ้งการใช้งานให้ "+email+" แล้ว"); } catch(e){ console.warn('[save] sendResetEmailREST', e.message || e); }
         } else {
           // REST สร้างไม่ได้ → แนะนำสร้างเองใน Console
           showToast("⚠️ เพิ่มใน DB แล้ว แต่สร้าง Auth ไม่สำเร็จ ("+authErr.message+") → สร้างใน Firebase Console → Auth → Add user","error");
