@@ -135,6 +135,25 @@ function resetEmailErrorMessage(code) {
   }[code] || (code || "ส่งลิงก์รีเซ็ตรหัสผ่านไม่สำเร็จ");
 }
 
+/** สร้าง Auth (ถ้ายังไม่มี) แล้วส่งอีเมลทันที */
+async function ensureAuthAndSendAccountEmail({
+  email, name, loginId, password, templateType, emailTemplates,
+}) {
+  const payload = { email, name, loginId, password, templateType, emailTemplates };
+  try {
+    await sendResetEmailREST(payload);
+    return { ok: true };
+  } catch (err) {
+    const notFound = err.code === "USER_NOT_FOUND" || err.code === "EMAIL_NOT_FOUND";
+    if (notFound && password?.length >= 6) {
+      await createAuthUserREST(email, password);
+      await sendResetEmailREST(payload);
+      return { ok: true, createdAuth: true };
+    }
+    throw err;
+  }
+}
+
 async function sendMemoEmail({ to, subject, html, text, attachments }) {
   const res = await fetch(`${API_BASE}/api/send-email`, {
     method: "POST",
@@ -2679,83 +2698,101 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
 function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
   const [editing,setEditing]=useState(null); const [delConfirm,setDelConfirm]=useState(null); const [importPreview,setImportPreview]=useState(null);
   const [importSendNew,setImportSendNew]=useState(true); const [importSendUpdated,setImportSendUpdated]=useState(false);
+  const [importing,setImporting]=useState(false); const [importStatus,setImportStatus]=useState("");
   const xlsxRef=useRef(); const blank={name:"",loginId:"",password:"",email:"",dept:"",role:"user",active:true,sendNotifyEmail:false};
   const handleXlsxImport=async(e)=>{const file=e.target.files[0];if(!file)return;e.target.value="";try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:""});const parsed=rows.map(r=>{const name=String(r["ชื่อ-สกุล"]||r["name"]||"").trim();const loginId=normalizeLoginId(r["username"]||r["Username"]||r["loginId"]||String(name).replace(/\s+/g,"."));const rawEmail=String(r["email"]||r["Email"]||"").trim().toLowerCase();return{name,loginId,email:rawEmail||makeLoginEmail(loginId),password:String(r["รหัสผ่าน"]||r["password"]||"").trim(),dept:String(r["แผนก"]||r["dept"]||"").trim(),role:["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase())?String(r["สิทธิ์"]||r["role"]||"user").toLowerCase():"user",active:true};}).filter(r=>r.name&&r.loginId&&r.password.length>=6);if(!parsed.length){showToast("ไม่พบข้อมูลที่ถูกต้อง","error");return;}setImportSendNew(true);setImportSendUpdated(false);setImportPreview(parsed);}catch(err){showToast("อ่านไฟล์ไม่ได้: "+err.message,"error");}};
   const confirmImport=async()=>{
-    if(!importPreview) return;
+    if(!importPreview || importing) return;
+    setImporting(true);
+    setImportStatus("กำลังนำเข้าข้อมูล...");
     const existing = Object.fromEntries(users.map(u=>[u.id,u]));
-    let added=0, updated=0, authFailed=0, emailFailed=0;
-    const notifyNew = [];
-    const notifyUpdated = [];
+    let added=0, updated=0, authFailed=0, emailsSent=0, emailFailed=0;
+    const emailErrors = [];
 
-    for (const r of importPreview) {
-      const dup = users.find(u => (u.loginId||loginIdFromUser(u))===r.loginId || u.email===r.email);
-      if (dup) {
-        existing[dup.id] = { ...dup, name: r.name, loginId: r.loginId, email: r.email, dept: r.dept, role: r.role };
-        updated++;
-        if (r.password) {
-          try {
-            await updateAuthPasswordREST(r.email, r.password);
-          } catch (authErr) {
-            authFailed++;
-            console.warn("Auth password update failed for", r.loginId, authErr.message);
-          }
-        }
-        if (importSendUpdated && r.email) {
-          notifyUpdated.push({ email: r.email, name: r.name, loginId: r.loginId, password: r.password });
-        }
-      } else {
-        const id = newId("u");
-        const { password, ...userData } = r;
-        existing[id] = { ...userData, id, mustChangePassword: true };
-        added++;
-        try {
-          await createAuthUserREST(r.email, r.password);
-          if (importSendNew && r.email) {
-            notifyNew.push({ email: r.email, name: r.name, loginId: r.loginId, password: r.password });
-          }
-        } catch (authErr) {
-          if (authErr.message === "EMAIL_EXISTS") {
-            if (importSendNew && r.email) {
-              notifyNew.push({ email: r.email, name: r.name, loginId: r.loginId, password: r.password });
+    try {
+      for (const r of importPreview) {
+        const dup = users.find(u => (u.loginId||loginIdFromUser(u))===r.loginId || u.email===r.email);
+        const shouldSendNew = importSendNew && !dup && r.email;
+        const shouldSendUpdated = importSendUpdated && dup && r.email;
+
+        if (dup) {
+          existing[dup.id] = {
+            ...dup, name: r.name, loginId: r.loginId, email: r.email, dept: r.dept, role: r.role,
+            ...(shouldSendUpdated && r.password ? { mustChangePassword: true } : {}),
+          };
+          updated++;
+          if (r.password) {
+            try {
+              await updateAuthPasswordREST(r.email, r.password);
+            } catch (authErr) {
+              if (authErr.code !== "USER_NOT_FOUND") {
+                authFailed++;
+                console.warn("Auth password update failed for", r.loginId, authErr.message);
+              }
             }
-          } else {
-            authFailed++;
-            console.warn("Auth failed for", r.loginId, authErr.message);
+          }
+          if (shouldSendUpdated) {
+            setImportStatus(`กำลังส่งอีเมลให้ ${r.email}...`);
+            try {
+              await ensureAuthAndSendAccountEmail({
+                email: r.email, name: r.name, loginId: r.loginId, password: r.password,
+                templateType: "update", emailTemplates,
+              });
+              emailsSent++;
+            } catch (e) {
+              emailFailed++;
+              emailErrors.push(`${r.email}: ${e.message || e.code}`);
+              console.warn('[confirmImport] email failed', r.email, e.message || e);
+            }
+          }
+        } else {
+          const id = newId("u");
+          const { password, ...userData } = r;
+          existing[id] = { ...userData, id, mustChangePassword: true };
+          added++;
+          try {
+            await createAuthUserREST(r.email, r.password);
+          } catch (authErr) {
+            if (authErr.message !== "EMAIL_EXISTS") {
+              authFailed++;
+              console.warn("Auth failed for", r.loginId, authErr.message);
+            }
+          }
+          if (shouldSendNew) {
+            setImportStatus(`กำลังส่งอีเมลให้ ${r.email}...`);
+            try {
+              await ensureAuthAndSendAccountEmail({
+                email: r.email, name: r.name, loginId: r.loginId, password: r.password,
+                templateType: "new", emailTemplates,
+              });
+              emailsSent++;
+            } catch (e) {
+              emailFailed++;
+              emailErrors.push(`${r.email}: ${e.message || e.code}`);
+              console.warn('[confirmImport] email failed', r.email, e.message || e);
+            }
           }
         }
       }
-    }
 
-    await writeUsers(existing);
+      setImportStatus("กำลังบันทึกข้อมูล...");
+      await writeUsers(existing);
 
-    for (const ne of notifyNew) {
-      try {
-        await sendResetEmailREST({
-          email: ne.email, name: ne.name, loginId: ne.loginId, password: ne.password,
-          templateType: "new", emailTemplates,
-        });
-      } catch (e) {
-        emailFailed++;
-        console.warn('[confirmImport] sendResetEmailREST failed', ne.email, e.message || e);
+      const parts = [`นำเข้าสำเร็จ: เพิ่ม ${added} คน, อัปเดต ${updated} คน`];
+      if (emailsSent > 0) parts.push(`ส่งอีเมลแล้ว ${emailsSent} ฉบับ`);
+      if (authFailed > 0) parts.push(`Auth ไม่สำเร็จ ${authFailed} คน`);
+      if (emailFailed > 0) parts.push(`ส่งอีเมลไม่สำเร็จ ${emailFailed} ฉบับ`);
+      showToast(parts.join(" — "), emailFailed > 0 ? "error" : "success");
+      if (emailErrors.length) {
+        setTimeout(() => showToast(emailErrors[0], "error"), 3500);
       }
+      setImportPreview(null);
+    } catch (err) {
+      showToast("Import ไม่สำเร็จ: "+err.message, "error");
+    } finally {
+      setImporting(false);
+      setImportStatus("");
     }
-    for (const ne of notifyUpdated) {
-      try {
-        await sendResetEmailREST({
-          email: ne.email, name: ne.name, loginId: ne.loginId, password: ne.password,
-          templateType: "update", emailTemplates,
-        });
-      } catch (e) {
-        emailFailed++;
-        console.warn('[confirmImport] sendResetEmailREST (update) failed', ne.email, e.message || e);
-      }
-    }
-
-    const failMsg = authFailed>0 ? ` (Auth ไม่สำเร็จ ${authFailed} คน)` : "";
-    const emailMsg = emailFailed>0 ? ` (ส่งอีเมลไม่สำเร็จ ${emailFailed} คน)` : "";
-    showToast(`นำเข้าสำเร็จ: เพิ่ม ${added} คน, อัปเดต ${updated} คน${failMsg}${emailMsg}`);
-    setImportPreview(null);
   };
 
   const save=async()=>{
@@ -2777,16 +2814,16 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
         await createAuthUserREST(email, password);
         showToast("✅ เพิ่ม User แล้ว — ใช้ Username "+loginId+" เข้าสู่ระบบได้ทันที");
         try {
-          await sendResetEmailREST({ email, name, loginId, password, templateType: "new", emailTemplates });
+          await ensureAuthAndSendAccountEmail({ email, name, loginId, password, templateType: "new", emailTemplates });
           showToast("ส่งอีเมลแจ้งการใช้งานให้ "+email+" แล้ว");
         } catch(e){ console.warn('[save] sendResetEmailREST', e.message || e); showToast("ส่งอีเมลไม่สำเร็จ: "+e.message,"error"); }
       }catch(authErr){
         if(authErr.message==="EMAIL_EXISTS"){
           showToast("✅ เพิ่ม User แล้ว (มี Auth account อยู่แล้ว)");
           try {
-            await sendResetEmailREST({ email, name, loginId, password, templateType: "new", emailTemplates });
+            await ensureAuthAndSendAccountEmail({ email, name, loginId, password, templateType: "new", emailTemplates });
             showToast("ส่งอีเมลแจ้งการใช้งานให้ "+email+" แล้ว");
-          } catch(e){ console.warn('[save] sendResetEmailREST', e.message || e); }
+          } catch(e){ console.warn('[save] sendResetEmailREST', e.message || e); showToast("ส่งอีเมลไม่สำเร็จ: "+e.message,"error"); }
         } else {
           showToast("⚠️ เพิ่มใน DB แล้ว แต่สร้าง Auth ไม่สำเร็จ ("+authErr.message+") → สร้างใน Firebase Console → Auth → Add user","error");
         }
@@ -2795,7 +2832,7 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
       showToast("บันทึกแล้ว");
       if (editing.sendNotifyEmail) {
         try {
-          await sendResetEmailREST({
+          await ensureAuthAndSendAccountEmail({
             email, name, loginId,
             password: password.length >= 6 ? password : "",
             templateType: "update", emailTemplates,
@@ -2929,7 +2966,17 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
               ส่งอีเมลแจ้งผู้ใช้ที่ได้รับการอัปเดต
             </label>
           </div>
-          <div style={{display:"flex",gap:8}}><button onClick={confirmImport} style={{...BTN_GOLD,flex:1,padding:"10px"}}>✓ ยืนยัน Import</button><button onClick={()=>setImportPreview(null)} style={{flex:1,padding:"10px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button></div>
+          {importStatus && (
+            <div style={{background:"#FFFBEB",border:"1px solid #FCD34D",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#92400E"}}>
+              ⏳ {importStatus}
+            </div>
+          )}
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={confirmImport} disabled={importing} style={{...BTN_GOLD,flex:1,padding:"10px",opacity:importing?0.6:1,cursor:importing?"wait":"pointer"}}>
+              {importing ? "กำลังดำเนินการ..." : "✓ ยืนยัน Import"}
+            </button>
+            <button onClick={()=>!importing&&setImportPreview(null)} disabled={importing} style={{flex:1,padding:"10px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:importing?"not-allowed":"pointer",opacity:importing?0.6:1}}>ยกเลิก</button>
+          </div>
         </div>
       </div>}
     </div>
