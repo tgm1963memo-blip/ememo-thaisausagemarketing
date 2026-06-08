@@ -141,6 +141,11 @@ const can = (role, action) => ROLE_PERMS[role]?.includes(action) ?? false;
 // ── Firebase helpers ──────────────────────────────────────────────────────────
 const writeMemo = async (memoData, isNew) => {
   if (isNew) {
+    // If caller provided a deterministic id, use it (prevents duplicate pushes).
+    if (memoData && memoData.id) {
+      await set(ref(db, `${DATA_PATH}/memos/${memoData.id}`), memoData);
+      return memoData.id;
+    }
     const r = push(ref(db, `${DATA_PATH}/memos`));
     const id = r.key;
     await set(r, { ...memoData, id });
@@ -2144,7 +2149,7 @@ function AiFeatureUpdateModal({ onClose }) {
   );
 }
 
-function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, routeTemplates, onSubmit, onCancel, isRecall, onOpenSigZones }) {
+function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, routeTemplates, onSubmit, onCancel, isRecall, onOpenSigZones, syncing }) {
   const fileRef      = useRef();
   const memoFileRef  = useRef();
   const [showPreview, setShowPreview] = useState(false);
@@ -2289,8 +2294,8 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, route
           </Section>
           <NotifyPanel notify={editMemo.notify||{emailList:[],postToTeams:false,postToPowerAuto:false,postToLine:false}} setNotify={setNotify} users={users} notifyConfig={notifyConfig} curUser={curUser}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            <button onClick={()=>onSubmit(false)} style={{...BTN_GOLD,width:"100%",padding:"11px",fontSize:13}}>{isRecall?"ส่งกลับเพื่ออนุมัติ":"ส่งเพื่ออนุมัติ"}</button>
-            <button onClick={()=>onSubmit(true)}  style={{padding:"11px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>บันทึกร่าง</button>
+            <button onClick={()=>!syncing&&onSubmit(false)} disabled={syncing} style={{...BTN_GOLD,width:"100%",padding:"11px",fontSize:13,opacity:syncing?0.6:1}}>{syncing?"กำลังส่ง...":(isRecall?"ส่งกลับเพื่ออนุมัติ":"ส่งเพื่ออนุมัติ")}</button>
+            <button onClick={()=>!syncing&&onSubmit(true)}  disabled={syncing} style={{padding:"11px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer",opacity:syncing?0.6:1}}>บันทึกร่าง</button>
             <button onClick={()=>setShowPreview(true)} style={{padding:"11px",background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:12,fontWeight:500,cursor:"pointer"}}>👁 ดูตัวอย่าง / กำหนดจุดลงนาม / โหลด PDF</button>
             <button onClick={onCancel} style={{padding:"11px",background:"none",color:"#9CA3AF",border:"none",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button>
           </div>
@@ -2700,6 +2705,12 @@ function UsersMgmt({ users, curUser, showToast }) {
       }
     } else {
       showToast("บันทึกแล้ว");
+      try {
+        await sendResetEmailREST(email, name, false);
+        showToast("ส่งอีเมลแจ้งการเข้าใช้งานให้ "+email+" แล้ว");
+      } catch (e) {
+        console.warn('[save] sendResetEmailREST (update) failed', e.message || e);
+      }
     }
     setEditing(null);
   };
@@ -3424,7 +3435,9 @@ export default function EMemo() {
         const docNo = await assignDocNo(payload, users, docCounters);
         payload.docNo = docNo;
       }
-      await writeMemo(payload,isNew);
+        // Ensure deterministic client id for new memos to avoid duplicate creations
+        if (isNew && !payload.id) payload.id = "m"+Date.now()+Math.floor(Math.random()*100000);
+        await writeMemo(payload,isNew);
       // [6] Send email to level 1 approvers when submitting
       if(!isDraft&&levels.length) await sendApproverEmail(notifyConfig,payload,levels[0],users);
     } finally { setSyncing(false); }
@@ -3711,7 +3724,7 @@ export default function EMemo() {
             ? <ErrorBoundary><SettingsView notifyConfig={notifyConfig} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)}/></ErrorBoundary>
             : <div style={{padding:32,textAlign:"center",color:"#9CA3AF",fontSize:13}}><div style={{fontSize:24,marginBottom:8}}>🔒</div><div>สิทธิ์ไม่เพียงพอ</div></div>
         )}
-        {view==="create"&&editMemo&&<CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} routeTemplates={routeTemplates} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"} onOpenSigZones={()=>setShowSigZones(true)}/>}
+        {view==="create"&&editMemo&&<CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} routeTemplates={routeTemplates} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"} onOpenSigZones={()=>setShowSigZones(true)} syncing={syncing}/>}
         {view==="detail"&&selMemo&&<DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplates={pdfTemplates} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal} onCloneMemo={cloneMemo} onApproverAddLevel={approverAddLevel}/>}
       </div>
 
