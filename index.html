@@ -15,5 +15,15 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <style>
+      /* Prevent accidental horizontal overflow and provide a small utility for wrapping long words */
+      html, body { max-width: 100%; overflow-x: hidden; }
+      .wrap-word { word-break: break-word; overflow-wrap: anywhere; }
+      /* Ensure buttons and selects don't force larger width than their containers */
+      button, select, input, textarea { max-width: 100%; box-sizing: border-box; }
+      /* Responsive two-column layout used in CreateView */
+      .two-col { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
+      @media (max-width: 880px) { .two-col { grid-template-columns: 1fr; } }
+    </style>
   </body>
 </html>

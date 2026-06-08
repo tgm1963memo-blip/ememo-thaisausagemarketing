@@ -1174,15 +1174,15 @@ function RouteEditor({ route, users, curUser, onChange, onSave, onCancel }) {
           </div>
           <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:6}}>
             {(lv.approvers||[]).map((ap,ai)=>(
-              <span key={ai} style={{fontSize:11,background:"#F3F4F6",borderRadius:4,padding:"2px 8px",display:"flex",alignItems:"center",gap:4}}>
-                {ap.name||ap.email}
+              <span key={ai} style={{fontSize:11,background:"#F3F4F6",borderRadius:4,padding:"2px 8px",display:"inline-flex",alignItems:"center",gap:4,maxWidth:"100%",wordBreak:"break-word",overflowWrap:"anywhere"}}>
+                <span style={{display:"inline-block",maxWidth:"calc(100% - 22px)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ap.name||ap.email}</span>
                 <button onClick={()=>remApp(li,ai)} style={{background:"none",border:"none",cursor:"pointer",color:"#9CA3AF",fontSize:10,padding:0}}>✕</button>
               </span>
             ))}
           </div>
           <select defaultValue="" onChange={e=>{addApp(li,e.target.value);e.target.value="";}}
             style={{fontSize:11,padding:"4px 8px",border:"1px solid #E5E7EB",borderRadius:5,width:"100%",background:"#F9FAFB"}}>
-            <option value="" disabled>+ เพิ่มผู้อนุมัติ</option>
+            <option value="" disabled>+ เพิ่ม</option>
             {users.filter(u=>u.active&&!lv.approvers?.find(a=>a.userId===u.id)).map(u=>(
               <option key={u.id} value={u.id}>{u.name} ({u.dept||"-"})</option>
             ))}
@@ -2208,7 +2208,7 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, route
           👁 ตัวอย่าง / PDF
         </button>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:16,alignItems:"start"}}>
+      <div className="two-col" style={{display:"grid"}}>
         <div>
           <Section>
             <Field label="ชื่อเรื่อง *"><input value={editMemo.title||""} onChange={e=>update("title",e.target.value)} placeholder="กรอกชื่อเรื่อง..." style={IS}/></Field>
