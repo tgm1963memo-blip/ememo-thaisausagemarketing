@@ -11,13 +11,23 @@
       html, body, #root { height: 100%; margin: 0; padding: 0; }
       body { font-family: 'Noto Sans Thai', 'Sarabun', sans-serif; }
     </style>
-    <script type="module" crossorigin src="/assets/index-BD_PryWk.js"></script>
+    <script type="module" crossorigin src="/assets/index-Cs0edgS5.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/react-vendor-wGySg1uH.js">
-    <link rel="modulepreload" crossorigin href="/assets/firebase-auth-CERwsa2S.js">
-    <link rel="modulepreload" crossorigin href="/assets/firebase-db-CBPcH_iJ.js">
-    <link rel="modulepreload" crossorigin href="/assets/firebase-app-DfYvJPR2.js">
+    <link rel="modulepreload" crossorigin href="/assets/firebase-auth-DqksHLWs.js">
+    <link rel="modulepreload" crossorigin href="/assets/firebase-db-DDK17tzy.js">
+    <link rel="modulepreload" crossorigin href="/assets/firebase-app-K_DLm3fF.js">
   </head>
   <body>
     <div id="root"></div>
+    <style>
+      /* Prevent accidental horizontal overflow and provide a small utility for wrapping long words */
+      html, body { max-width: 100%; overflow-x: hidden; }
+      .wrap-word { word-break: break-word; overflow-wrap: anywhere; }
+      /* Ensure buttons and selects don't force larger width than their containers */
+      button, select, input, textarea { max-width: 100%; box-sizing: border-box; }
+      /* Responsive two-column layout used in CreateView */
+      .two-col { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
+      @media (max-width: 880px) { .two-col { grid-template-columns: 1fr; } }
+    </style>
   </body>
 </html>

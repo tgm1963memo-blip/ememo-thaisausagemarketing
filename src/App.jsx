@@ -4,6 +4,14 @@ import { ref, onValue, set, push, update } from "firebase/database";
 import { auth, db, DATA_PATH } from "./firebase";
 import Login from "./Login";
 import ResetPassword from "./ResetPassword";
+import ChangePasswordModal from "./ChangePasswordModal";
+import {
+  DEFAULT_EMAIL_TEMPLATES,
+  EMAIL_PLACEHOLDERS,
+  EMAIL_TEMPLATE_TABS,
+  mergeEmailTemplates,
+  getTemplateByType,
+} from "./emailTemplates";
 
 // ── Firebase Auth REST API ─────────────────────────────────────────────────
 // ข้อ 1 & 4: สร้าง Auth user ผ่าน REST API โดยไม่ต้อง logout admin
@@ -52,16 +60,31 @@ const API_BASE = typeof window !== "undefined"
   ? (window.location.origin.includes("localhost") ? "http://localhost:3000" : "")
   : "";
 
-async function sendResetEmailREST(email, name="", isNew=false) {
+async function sendResetEmailREST({
+  email,
+  name = "",
+  loginId = "",
+  password = "",
+  templateType = "forgot",
+  emailTemplates = null,
+}) {
+  const customTemplate = emailTemplates ? getTemplateByType(emailTemplates, templateType) : null;
   let res;
   try {
     res = await fetch(`${API_BASE}/api/send-reset-email`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, name, isNew }),
+      body: JSON.stringify({
+        email,
+        name,
+        loginId,
+        password,
+        templateType,
+        customTemplate,
+      }),
     });
   } catch (err) {
-    throw new Error("เรียก API ส่งอีเมลไม่ได้ — ถ้าทดสอบบนเครื่องให้รันผ่าน Vercel dev หรือ deploy ขึ้น Vercel");
+    throw new Error("เรียก API ส่งอีเมลไม่ได้ — ถ้าทดสอบบนเครื่องให้รัน npm run dev:api (vercel dev) หรือ deploy ขึ้น Vercel");
   }
 
   const data = await res.json().catch(() => ({}));
@@ -71,6 +94,34 @@ async function sendResetEmailREST(email, name="", isNew=false) {
     throw error;
   }
   return data;
+}
+
+async function updateAuthPasswordREST(email, password) {
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/api/update-auth-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch (err) {
+    throw new Error("เรียก API อัปเดตรหัสผ่านไม่ได้ — กรุณารัน vercel dev หรือ deploy");
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const error = new Error(updatePasswordErrorMessage(data.error));
+    error.code = data.error;
+    throw error;
+  }
+  return data;
+}
+
+function updatePasswordErrorMessage(code) {
+  return {
+    USER_NOT_FOUND: "ไม่พบ Auth user นี้ใน Firebase",
+    WEAK_PASSWORD: "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร",
+    FIREBASE_ADMIN_CONFIG_MISSING: "ระบบยังไม่ได้ตั้งค่า Firebase Admin บน Vercel",
+  }[code] || (code || "อัปเดตรหัสผ่านไม่สำเร็จ");
 }
 
 function resetEmailErrorMessage(code) {
@@ -158,6 +209,7 @@ const patchMemo        = (id, p)   => update(ref(db, `${DATA_PATH}/memos/${id}`)
 const writeUsers       = (obj)     => set(ref(db, `${DATA_PATH}/users`), obj);
 const patchUser        = (id, p)   => update(ref(db, `${DATA_PATH}/users/${id}`), p);
 const writeNotifyConfig= (cfg)     => set(ref(db, `${DATA_PATH}/notifyConfig`), cfg);
+const writeEmailTemplates=(tpls)   => set(ref(db, `${DATA_PATH}/emailTemplates`), tpls);
 const writePdfTemplates= (tpls)    => set(ref(db, `${DATA_PATH}/pdfTemplates`), tpls);
 const writeDocCounters = (ctrs)    => set(ref(db, `${DATA_PATH}/docCounters`), ctrs);
 const writeRouteTemplates=(routes) => set(ref(db, `${DATA_PATH}/routeTemplates`), routes||[]);
@@ -2624,33 +2676,49 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
 }
 
 // UsersMgmt, SettingsView — same as original ──────────────────────────────────
-function UsersMgmt({ users, curUser, showToast }) {
+function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
   const [editing,setEditing]=useState(null); const [delConfirm,setDelConfirm]=useState(null); const [importPreview,setImportPreview]=useState(null);
-  const xlsxRef=useRef(); const blank={name:"",loginId:"",password:"",email:"",dept:"",role:"user",active:true};
-  const handleXlsxImport=async(e)=>{const file=e.target.files[0];if(!file)return;e.target.value="";try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:""});const parsed=rows.map(r=>{const name=String(r["ชื่อ-สกุล"]||r["name"]||"").trim();const loginId=normalizeLoginId(r["username"]||r["Username"]||r["loginId"]||String(name).replace(/\s+/g,"."));return{name,loginId,email:makeLoginEmail(loginId),password:String(r["รหัสผ่าน"]||r["password"]||"").trim(),dept:String(r["แผนก"]||r["dept"]||"").trim(),role:["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase())?String(r["สิทธิ์"]||r["role"]||"user").toLowerCase():"user",active:true};}).filter(r=>r.name&&r.loginId&&r.password.length>=6);if(!parsed.length){showToast("ไม่พบข้อมูลที่ถูกต้อง","error");return;}setImportPreview(parsed);}catch(err){showToast("อ่านไฟล์ไม่ได้: "+err.message,"error");}};
+  const [importSendNew,setImportSendNew]=useState(true); const [importSendUpdated,setImportSendUpdated]=useState(false);
+  const xlsxRef=useRef(); const blank={name:"",loginId:"",password:"",email:"",dept:"",role:"user",active:true,sendNotifyEmail:false};
+  const handleXlsxImport=async(e)=>{const file=e.target.files[0];if(!file)return;e.target.value="";try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:""});const parsed=rows.map(r=>{const name=String(r["ชื่อ-สกุล"]||r["name"]||"").trim();const loginId=normalizeLoginId(r["username"]||r["Username"]||r["loginId"]||String(name).replace(/\s+/g,"."));const rawEmail=String(r["email"]||r["Email"]||"").trim().toLowerCase();return{name,loginId,email:rawEmail||makeLoginEmail(loginId),password:String(r["รหัสผ่าน"]||r["password"]||"").trim(),dept:String(r["แผนก"]||r["dept"]||"").trim(),role:["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase())?String(r["สิทธิ์"]||r["role"]||"user").toLowerCase():"user",active:true};}).filter(r=>r.name&&r.loginId&&r.password.length>=6);if(!parsed.length){showToast("ไม่พบข้อมูลที่ถูกต้อง","error");return;}setImportSendNew(true);setImportSendUpdated(false);setImportPreview(parsed);}catch(err){showToast("อ่านไฟล์ไม่ได้: "+err.message,"error");}};
   const confirmImport=async()=>{
     if(!importPreview) return;
     const existing = Object.fromEntries(users.map(u=>[u.id,u]));
-    let added=0, updated=0, authFailed=0;
-    const notifyEmails = [];
+    let added=0, updated=0, authFailed=0, emailFailed=0;
+    const notifyNew = [];
+    const notifyUpdated = [];
+
     for (const r of importPreview) {
       const dup = users.find(u => (u.loginId||loginIdFromUser(u))===r.loginId || u.email===r.email);
       if (dup) {
         existing[dup.id] = { ...dup, name: r.name, loginId: r.loginId, email: r.email, dept: r.dept, role: r.role };
         updated++;
+        if (r.password) {
+          try {
+            await updateAuthPasswordREST(r.email, r.password);
+          } catch (authErr) {
+            authFailed++;
+            console.warn("Auth password update failed for", r.loginId, authErr.message);
+          }
+        }
+        if (importSendUpdated && r.email) {
+          notifyUpdated.push({ email: r.email, name: r.name, loginId: r.loginId, password: r.password });
+        }
       } else {
         const id = newId("u");
         const { password, ...userData } = r;
-        existing[id] = { ...userData, id };
+        existing[id] = { ...userData, id, mustChangePassword: true };
         added++;
-        // Try create Auth account; if success or already exists, queue reset-email
         try {
           await createAuthUserREST(r.email, r.password);
-          if (r.email) notifyEmails.push({ email: r.email, name: r.name });
+          if (importSendNew && r.email) {
+            notifyNew.push({ email: r.email, name: r.name, loginId: r.loginId, password: r.password });
+          }
         } catch (authErr) {
           if (authErr.message === "EMAIL_EXISTS") {
-            // Auth exists — still send reset link so user can set password
-            if (r.email) notifyEmails.push({ email: r.email, name: r.name });
+            if (importSendNew && r.email) {
+              notifyNew.push({ email: r.email, name: r.name, loginId: r.loginId, password: r.password });
+            }
           } else {
             authFailed++;
             console.warn("Auth failed for", r.loginId, authErr.message);
@@ -2661,17 +2729,32 @@ function UsersMgmt({ users, curUser, showToast }) {
 
     await writeUsers(existing);
 
-    // Send reset emails to newly added users (best-effort)
-    for (const ne of notifyEmails) {
+    for (const ne of notifyNew) {
       try {
-        await sendResetEmailREST(ne.email, ne.name, true);
+        await sendResetEmailREST({
+          email: ne.email, name: ne.name, loginId: ne.loginId, password: ne.password,
+          templateType: "new", emailTemplates,
+        });
       } catch (e) {
+        emailFailed++;
         console.warn('[confirmImport] sendResetEmailREST failed', ne.email, e.message || e);
       }
     }
+    for (const ne of notifyUpdated) {
+      try {
+        await sendResetEmailREST({
+          email: ne.email, name: ne.name, loginId: ne.loginId, password: ne.password,
+          templateType: "update", emailTemplates,
+        });
+      } catch (e) {
+        emailFailed++;
+        console.warn('[confirmImport] sendResetEmailREST (update) failed', ne.email, e.message || e);
+      }
+    }
 
-    const failMsg = authFailed>0 ? ` (สร้าง Auth ไม่สำเร็จ ${authFailed} คน — ตรวจสอบ Firebase Console)` : "";
-    showToast(`นำเข้าสำเร็จ: เพิ่ม ${added} คน, อัปเดต ${updated} คน${failMsg}`);
+    const failMsg = authFailed>0 ? ` (Auth ไม่สำเร็จ ${authFailed} คน)` : "";
+    const emailMsg = emailFailed>0 ? ` (ส่งอีเมลไม่สำเร็จ ${emailFailed} คน)` : "";
+    showToast(`นำเข้าสำเร็จ: เพิ่ม ${added} คน, อัปเดต ${updated} คน${failMsg}${emailMsg}`);
     setImportPreview(null);
   };
 
@@ -2684,32 +2767,43 @@ function UsersMgmt({ users, curUser, showToast }) {
     if(!editing.id&&password.length<6){showToast("กรุณาตั้งรหัสผ่านอย่างน้อย 6 ตัวอักษร","error");return;}
     if(!editing.id&&users.find(u=>(u.loginId||"")===loginId||u.email===email)){showToast("Username นี้มีในระบบแล้ว","error");return;}
     const id=editing.id||newId("u");
-    const { password: _password, ...editingSafe } = editing;
+    const { password: _password, sendNotifyEmail, ...editingSafe } = editing;
     const newUser={...editingSafe,id,name,loginId,email};
+    if (!editing.id) newUser.mustChangePassword = true;
     const newObj={...Object.fromEntries(users.map(u=>[u.id,u])),[id]:newUser};
     await writeUsers(newObj);
-    // ── ข้อ 4: สร้าง Firebase Auth user ผ่าน REST API (admin ไม่ logout) ──
     if(!editing.id){
       try{
         await createAuthUserREST(email, password);
         showToast("✅ เพิ่ม User แล้ว — ใช้ Username "+loginId+" เข้าสู่ระบบได้ทันที");
-        try { await sendResetEmailREST(email, name, true); showToast("ส่งอีเมลแจ้งการใช้งานให้ "+email+" แล้ว"); } catch(e){ console.warn('[save] sendResetEmailREST', e.message || e); }
+        try {
+          await sendResetEmailREST({ email, name, loginId, password, templateType: "new", emailTemplates });
+          showToast("ส่งอีเมลแจ้งการใช้งานให้ "+email+" แล้ว");
+        } catch(e){ console.warn('[save] sendResetEmailREST', e.message || e); showToast("ส่งอีเมลไม่สำเร็จ: "+e.message,"error"); }
       }catch(authErr){
         if(authErr.message==="EMAIL_EXISTS"){
           showToast("✅ เพิ่ม User แล้ว (มี Auth account อยู่แล้ว)");
-          try { await sendResetEmailREST(email, name, true); showToast("ส่งอีเมลแจ้งการใช้งานให้ "+email+" แล้ว"); } catch(e){ console.warn('[save] sendResetEmailREST', e.message || e); }
+          try {
+            await sendResetEmailREST({ email, name, loginId, password, templateType: "new", emailTemplates });
+            showToast("ส่งอีเมลแจ้งการใช้งานให้ "+email+" แล้ว");
+          } catch(e){ console.warn('[save] sendResetEmailREST', e.message || e); }
         } else {
-          // REST สร้างไม่ได้ → แนะนำสร้างเองใน Console
           showToast("⚠️ เพิ่มใน DB แล้ว แต่สร้าง Auth ไม่สำเร็จ ("+authErr.message+") → สร้างใน Firebase Console → Auth → Add user","error");
         }
       }
     } else {
       showToast("บันทึกแล้ว");
-      try {
-        await sendResetEmailREST(email, name, false);
-        showToast("ส่งอีเมลแจ้งการเข้าใช้งานให้ "+email+" แล้ว");
-      } catch (e) {
-        console.warn('[save] sendResetEmailREST (update) failed', e.message || e);
+      if (editing.sendNotifyEmail) {
+        try {
+          await sendResetEmailREST({
+            email, name, loginId,
+            password: password.length >= 6 ? password : "",
+            templateType: "update", emailTemplates,
+          });
+          showToast("ส่งอีเมลแจ้งการอัปเดตให้ "+email+" แล้ว");
+        } catch (e) {
+          showToast("ส่งอีเมลไม่สำเร็จ: "+(e.message||e.code),"error");
+        }
       }
     }
     setEditing(null);
@@ -2753,7 +2847,7 @@ function UsersMgmt({ users, curUser, showToast }) {
             <div><span style={{fontSize:11,fontWeight:500,color:u.active?"#065F46":"#991B1B",background:u.active?"#ECFDF5":"#FFF1F1",border:`1px solid ${u.active?"#A7F3D0":"#FECACA"}`,borderRadius:4,padding:"2px 7px"}}>{u.active?"ใช้งาน":"ระงับ"}</span></div>
             <div style={{display:"flex",gap:4}}>
               <button onClick={()=>setEditing({...u})} style={BTN_GRAY}>แก้ไข</button>
-              <button onClick={async()=>{try{await sendResetEmailREST(u.email,u.name,false);showToast("ส่งลิงก์รีเซ็ตรหัสผ่านให้ "+u.email+" แล้ว");}catch(e){showToast("ส่งไม่สำเร็จ: "+(e.message||e.code),"error");}}} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",cursor:"pointer"}} title="ส่งลิงก์รีเซ็ตรหัสผ่าน">🔑</button>
+              <button onClick={async()=>{try{await sendResetEmailREST({email:u.email,name:u.name,loginId:loginIdFromUser(u),templateType:"forgot",emailTemplates});showToast("ส่งลิงก์รีเซ็ตรหัสผ่านให้ "+u.email+" แล้ว");}catch(e){showToast("ส่งไม่สำเร็จ: "+(e.message||e.code),"error");}}} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",cursor:"pointer"}} title="ส่งลิงก์รีเซ็ตรหัสผ่าน">🔑</button>
               <button onClick={()=>toggle(u)} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:u.active?"#FFFBEB":"#ECFDF5",color:u.active?"#B45309":"#065F46",border:`1px solid ${u.active?"#FCD34D":"#A7F3D0"}`,cursor:"pointer"}}>{u.active?"ระงับ":"เปิด"}</button>
               {u.id!==curUser.id&&<button onClick={()=>setDelConfirm(u)} style={{...BTN_X,color:"#DC2626",padding:"3px 6px",border:"1px solid #FECACA",borderRadius:5,background:"#FFF1F1"}}>ลบ</button>}
             </div>
@@ -2798,6 +2892,12 @@ function UsersMgmt({ users, curUser, showToast }) {
           <div style={{padding:"8px 12px",background:"#F9FAFB",borderRadius:6,fontSize:11,color:"#6B7280",marginBottom:14,lineHeight:1.6}}>
             <strong>สิทธิ์:</strong> {RDESC[editing.role]}
           </div>
+          {editing.id && (
+            <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,fontSize:12,color:"#374151",cursor:"pointer"}}>
+              <input type="checkbox" checked={!!editing.sendNotifyEmail} onChange={e=>setEditing(p=>({...p,sendNotifyEmail:e.target.checked}))}/>
+              ส่งอีเมลแจ้งเตือนผู้ใช้ (template อัปเดตบัญชี)
+            </label>
+          )}
           <div style={{display:"flex",gap:8}}><button onClick={save} style={{...BTN_GOLD,flex:1,padding:"10px"}}>บันทึก</button><button onClick={()=>setEditing(null)} style={{flex:1,padding:"10px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button></div>
         </div>
       </div>}
@@ -2811,10 +2911,23 @@ function UsersMgmt({ users, curUser, showToast }) {
       {importPreview&&<div style={{position:"fixed",inset:0,zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.5)"}}>
         <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:24,width:560,maxHeight:"80vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.2)"}}>
           <div style={{fontSize:15,fontWeight:600,marginBottom:4,color:"#111"}}>📥 ตรวจสอบก่อน Import</div>
-          <div style={{fontSize:12,color:"#9CA3AF",marginBottom:14}}>พบ {importPreview.length} รายการ</div>
+          <div style={{fontSize:12,color:"#9CA3AF",marginBottom:14}}>
+            พบ {importPreview.length} รายการ — เพิ่ม {importPreview.filter(r=>!users.find(u=>(u.loginId||loginIdFromUser(u))===r.loginId||u.email===r.email)).length} / อัปเดต {importPreview.filter(r=>!!users.find(u=>(u.loginId||loginIdFromUser(u))===r.loginId||u.email===r.email)).length}
+          </div>
           <div style={{background:"#F9FAFB",borderRadius:8,overflow:"hidden",border:"1px solid #F3F4F6",marginBottom:16}}>
             <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 2fr 1fr 1fr",padding:"7px 12px",borderBottom:"1px solid #F3F4F6",background:"#F3F4F6"}}>{["ชื่อ-สกุล","Username","Email","แผนก","สิทธิ์"].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:"#6B7280"}}>{h}</div>)}</div>
             {importPreview.map((r,i)=>{const isDup=!!users.find(u=>(u.loginId||loginIdFromUser(u))===r.loginId||u.email===r.email);return <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 2fr 2fr 1fr 1fr",padding:"7px 12px",borderBottom:"1px solid #F3F4F6",background:isDup?"#FFFBEB":"#fff"}}><div style={{fontSize:12,color:"#374151"}}>{r.name}{isDup&&<span style={{fontSize:10,color:"#B45309"}}> (อัปเดต)</span>}</div><div style={{fontSize:11,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.loginId}</div><div style={{fontSize:11,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.email}</div><div style={{fontSize:12,color:"#374151"}}>{r.dept||"-"}</div><div><RoleBadge role={r.role}/></div></div>;})}
+          </div>
+          <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:8,padding:"12px 14px",marginBottom:16}}>
+            <div style={{fontSize:12,fontWeight:600,color:"#1E40AF",marginBottom:8}}>การส่งอีเมลแจ้งเตือน</div>
+            <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,fontSize:12,color:"#374151",cursor:"pointer"}}>
+              <input type="checkbox" checked={importSendNew} onChange={e=>setImportSendNew(e.target.checked)}/>
+              ส่งอีเมลให้ผู้ใช้ใหม่ (username + password + ลิงก์ตั้งรหัสผ่าน)
+            </label>
+            <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#374151",cursor:"pointer"}}>
+              <input type="checkbox" checked={importSendUpdated} onChange={e=>setImportSendUpdated(e.target.checked)}/>
+              ส่งอีเมลแจ้งผู้ใช้ที่ได้รับการอัปเดต
+            </label>
           </div>
           <div style={{display:"flex",gap:8}}><button onClick={confirmImport} style={{...BTN_GOLD,flex:1,padding:"10px"}}>✓ ยืนยัน Import</button><button onClick={()=>setImportPreview(null)} style={{flex:1,padding:"10px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,cursor:"pointer"}}>ยกเลิก</button></div>
         </div>
@@ -2831,12 +2944,18 @@ const DEFAULT_NOTIFY = {
   line:      { enabled:true, channelAccessToken:"", groupId:"" },
 };
 
-function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
+function SettingsView({ notifyConfig, emailTemplatesStored, showToast, onOpenPdfTemplate }) {
   const safe = ch => ({ ...(DEFAULT_NOTIFY[ch]||{}), ...((notifyConfig||{})[ch]||{}) });
   const [email,     setEmail]     = useState(()=>safe("email"));
   const [teams,     setTeams]     = useState(()=>safe("teams"));
   const [powerauto, setPowerauto] = useState(()=>safe("powerauto"));
   const [line,      setLine]      = useState(()=>safe("line"));
+  const [emailTplTab, setEmailTplTab] = useState("forgotPassword");
+  const [emailTemplates, setEmailTemplates] = useState(() => mergeEmailTemplates(emailTemplatesStored));
+
+  useEffect(() => {
+    setEmailTemplates(mergeEmailTemplates(emailTemplatesStored));
+  }, [emailTemplatesStored]);
 
   const cfgMap  = { email, teams, powerauto, line };
   const setMap  = { email:setEmail, teams:setTeams, powerauto:setPowerauto, line:setLine };
@@ -2845,9 +2964,25 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
   const save = async () => {
     try {
       await writeNotifyConfig({ email, teams, powerauto, line });
+      await writeEmailTemplates(emailTemplates);
       showToast("บันทึกการตั้งค่าแล้ว");
     } catch(e) { showToast("บันทึกไม่สำเร็จ: "+e.message,"error"); }
   };
+
+  const resetEmailTemplate = () => {
+    const def = DEFAULT_EMAIL_TEMPLATES[emailTplTab];
+    setEmailTemplates(prev => ({ ...prev, [emailTplTab]: { ...def } }));
+    showToast("รีเซ็ต template เป็นค่าเริ่มต้นแล้ว");
+  };
+
+  const setEmailTplField = (field, value) => {
+    setEmailTemplates(prev => ({
+      ...prev,
+      [emailTplTab]: { ...prev[emailTplTab], [field]: value },
+    }));
+  };
+
+  const activeTpl = emailTemplates[emailTplTab] || DEFAULT_EMAIL_TEMPLATES[emailTplTab];
 
   const CHANNELS = [
     { id:"email", icon:"✉", label:"อีเมล์ (SMTP บริษัท)", color:"#1E40AF",
@@ -2877,6 +3012,43 @@ function SettingsView({ notifyConfig, showToast, onOpenPdfTemplate }) {
         </div>
         <button onClick={onOpenPdfTemplate} style={{padding:"8px 16px",background:"#3C3489",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",flexShrink:0}}>
           จัดการ Template
+        </button>
+      </div>
+
+      {/* Email account templates */}
+      <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:10,padding:"16px",marginBottom:20}}>
+        <div style={{fontSize:14,fontWeight:600,color:"#111",marginBottom:4}}>✉ Template อีเมลบัญชีผู้ใช้</div>
+        <div style={{fontSize:11,color:"#6B7280",marginBottom:12}}>ส่งจาก noreply.ememo@tgm.co.th — ใช้ placeholder ด้านล่างใน Subject และ HTML</div>
+        <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+          {EMAIL_TEMPLATE_TABS.map(tab => (
+            <button key={tab.id} onClick={()=>setEmailTplTab(tab.id)}
+              style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${emailTplTab===tab.id?"#D4AF37":"#E5E7EB"}`,
+                background:emailTplTab===tab.id?"#FFFBEB":"#F9FAFB",color:emailTplTab===tab.id?"#92400E":"#6B7280",
+                fontSize:12,fontWeight:emailTplTab===tab.id?600:400,cursor:"pointer",fontFamily:"inherit"}}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div style={{fontSize:10,color:"#9CA3AF",marginBottom:10,lineHeight:1.8}}>
+          Placeholder: {EMAIL_PLACEHOLDERS.join(", ")}
+        </div>
+        <div style={{marginBottom:10}}>
+          <label style={{fontSize:11,fontWeight:600,color:"#6B7280",display:"block",marginBottom:4}}>Subject</label>
+          <input value={activeTpl.subject||""} onChange={e=>setEmailTplField("subject",e.target.value)}
+            style={{width:"100%",padding:"8px 10px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12,boxSizing:"border-box"}}/>
+        </div>
+        <div style={{marginBottom:10}}>
+          <label style={{fontSize:11,fontWeight:600,color:"#6B7280",display:"block",marginBottom:4}}>HTML Body</label>
+          <textarea value={activeTpl.html||""} onChange={e=>setEmailTplField("html",e.target.value)} rows={12}
+            style={{width:"100%",padding:"8px 10px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:11,fontFamily:"monospace",boxSizing:"border-box",resize:"vertical"}}/>
+        </div>
+        <div style={{marginBottom:10}}>
+          <label style={{fontSize:11,fontWeight:600,color:"#6B7280",display:"block",marginBottom:4}}>Plain Text (fallback)</label>
+          <textarea value={activeTpl.text||""} onChange={e=>setEmailTplField("text",e.target.value)} rows={4}
+            style={{width:"100%",padding:"8px 10px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:11,fontFamily:"monospace",boxSizing:"border-box",resize:"vertical"}}/>
+        </div>
+        <button onClick={resetEmailTemplate} style={{padding:"6px 12px",background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:6,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+          ↺ รีเซ็ตแท็บนี้เป็นค่าเริ่มต้น
         </button>
       </div>
 
@@ -3370,6 +3542,7 @@ export default function EMemo() {
   const users         = Object.values(data.users    ||{});
   const memoList      = Object.values(data.memos    ||{});
   const notifyConfig  = data.notifyConfig||{email:{},teams:{},powerauto:{},line:{}};
+  const emailTemplates = mergeEmailTemplates(data.emailTemplates);
   const pdfTemplates  = data.pdfTemplates ||{};
   const docCounters   = data.docCounters  ||{};
   const routeTemplates= Array.isArray(data.routeTemplates) ? data.routeTemplates : Object.values(data.routeTemplates||{});
@@ -3634,6 +3807,10 @@ export default function EMemo() {
 
   const mobileNavItems = MOBILE_NAV.filter(n=>n.roles.includes(curUser.role));
 
+  if (curUser.mustChangePassword) {
+    return <ChangePasswordModal user={curUser} showToast={showToast} />;
+  }
+
   return (
     <div style={{fontFamily:"'Noto Sans Thai','Sarabun',sans-serif",display:"flex",height:"100vh",overflow:"hidden"}}>
       <style>{`
@@ -3718,10 +3895,10 @@ export default function EMemo() {
         {view==="all"      &&can(curUser.role,"viewAll")&&<MemoListView memoList={visibleMemos} users={users} title="Memo ทั้งหมด" curUser={curUser} onOpen={openMemo}/>}
         {view==="search"   &&<SearchView memoList={visibleMemos} users={users} curUser={curUser} onOpen={openMemo}/>}
         {view==="routes"   &&<RouteListView routeTemplates={routeTemplates} curUser={curUser} onManage={()=>setShowRouteManager(true)}/>}
-        {view==="users"    &&can(curUser.role,"manageUsers")&&<UsersMgmt users={users} curUser={curUser} showToast={showToast}/>}
+        {view==="users"    &&can(curUser.role,"manageUsers")&&<UsersMgmt users={users} curUser={curUser} showToast={showToast} emailTemplates={emailTemplates}/>}
         {view==="settings" &&(
           can(curUser.role,"settings")
-            ? <ErrorBoundary><SettingsView notifyConfig={notifyConfig} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)}/></ErrorBoundary>
+            ? <ErrorBoundary><SettingsView notifyConfig={notifyConfig} emailTemplatesStored={data.emailTemplates} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)}/></ErrorBoundary>
             : <div style={{padding:32,textAlign:"center",color:"#9CA3AF",fontSize:13}}><div style={{fontSize:24,marginBottom:8}}>🔒</div><div>สิทธิ์ไม่เพียงพอ</div></div>
         )}
         {view==="create"&&editMemo&&<CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} routeTemplates={routeTemplates} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"} onOpenSigZones={()=>setShowSigZones(true)} syncing={syncing}/>}

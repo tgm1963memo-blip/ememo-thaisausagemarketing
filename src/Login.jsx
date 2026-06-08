@@ -5,6 +5,10 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 const GOLD = "#D4AF37";
 const DEFAULT_LOGIN_DOMAIN = import.meta.env.VITE_LOGIN_EMAIL_DOMAIN || "tgm.co.th";
 
+const API_BASE = typeof window !== "undefined"
+  ? (window.location.origin.includes("localhost") ? "http://localhost:3000" : "")
+  : "";
+
 function resolveLoginEmail(value) {
   const loginId = value.trim().toLowerCase();
   if (!loginId) return "";
@@ -12,17 +16,14 @@ function resolveLoginEmail(value) {
   return `${loginId.replace(/[^a-z0-9._-]/g, "")}@${DEFAULT_LOGIN_DOMAIN}`;
 }
 
-// ── Reset Password ─────────────────────────────────────────────────────────────
-// เรียก /api/send-reset-email → Firebase ส่ง link + SMTP บริษัทส่งซ้ำ
 async function sendResetEmail(email) {
-  const res = await fetch("/api/send-reset-email", {
+  const res = await fetch(`${API_BASE}/api/send-reset-email`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, isNew: false }),
+    body: JSON.stringify({ email, templateType: "forgot" }),
   });
   const data = await res.json();
   if (!res.ok) {
-    // แปลง error code เป็นข้อความภาษาไทย
     const msg = {
       "USER_NOT_FOUND": "ไม่พบบัญชีนี้ในระบบ — กรุณาติดต่อ Admin เพื่อสร้างบัญชี",
       "EMAIL_NOT_FOUND": "ไม่พบบัญชีนี้ในระบบ — กรุณาติดต่อ Admin เพื่อสร้างบัญชี",

@@ -7,7 +7,9 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:api": "vercel dev",
     "build": "vite build",
+    "test:email": "node scripts/test-email-templates.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
