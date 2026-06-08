@@ -38,6 +38,44 @@ function loginIdFromUser(user) {
   return user?.loginId || String(user?.email || "").split("@")[0] || "";
 }
 
+function parseNameAndNickname(name, nicknameField = "") {
+  const raw = String(name || "").trim();
+  const embedded = raw.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+  if (embedded) return { name: embedded[1].trim(), nickname: embedded[2].trim() };
+  const nick = String(nicknameField || "").trim();
+  return { name: raw, nickname: nick };
+}
+
+function formatUserLabel(u, { withDept = true, withEmail = false } = {}) {
+  if (!u) return "";
+  const { name, nickname } = parseNameAndNickname(u.name, u.nickname);
+  const nickPart = nickname ? ` (${nickname})` : "";
+  const deptPart = withDept && u.dept ? ` · ${u.dept}` : "";
+  const emailPart = withEmail && u.email ? ` — ${u.email}` : "";
+  return `${name}${nickPart}${deptPart}${emailPart}`;
+}
+
+function groupUsersByDept(userList) {
+  const sorted = [...userList].sort((a, b) => {
+    const da = (a.dept || "").localeCompare(b.dept || "", "th");
+    if (da !== 0) return da;
+    return (a.name || "").localeCompare(b.name || "", "th");
+  });
+  const groups = new Map();
+  for (const u of sorted) {
+    const dept = u.dept?.trim() || "— ไม่ระบุแผนก —";
+    if (!groups.has(dept)) groups.set(dept, []);
+    groups.get(dept).push(u);
+  }
+  return [...groups.entries()].map(([dept, users]) => ({ dept, users }));
+}
+
+function userByEmailMap(users) {
+  return Object.fromEntries(
+    (users || []).filter(u => u.email).map(u => [String(u.email).toLowerCase(), u])
+  );
+}
+
 async function createAuthUserREST(email, password) {
   const apiKey = auth.app.options.apiKey;
   // สร้าง random password ชั่วคราว user จะ reset ผ่านลิงก์
@@ -653,10 +691,12 @@ const getApprovalStatus = (memo, users) => {
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const IS      = { width:"100%", padding:"8px 10px", border:"1px solid #E5E7EB", borderRadius:6, fontSize:13, background:"#fff", color:"#111", boxSizing:"border-box" };
-const BTN_GOLD= { display:"inline-flex", alignItems:"center", justifyContent:"center", gap:4, padding:"7px 14px", background:GOLD, color:BLACK, border:"none", borderRadius:6, fontSize:12, fontWeight:600, cursor:"pointer" };
-const BTN_GRAY= { padding:"4px 10px", fontSize:11, borderRadius:6, background:"#F9FAFB", color:"#6B7280", border:"1px solid #E5E7EB", cursor:"pointer" };
-const BTN_X   = { background:"none", border:"none", cursor:"pointer", fontSize:12, color:"#9CA3AF", padding:"0 2px" };
-const ATT_ROW = { display:"flex", alignItems:"center", gap:8, padding:"6px 10px", background:"#F9FAFB", borderRadius:6, marginBottom:4, fontSize:12, border:"1px solid #F3F4F6" };
+const BTN_GOLD= { display:"inline-flex", alignItems:"center", justifyContent:"center", gap:4, padding:"7px 14px", background:GOLD, color:BLACK, border:"none", borderRadius:6, fontSize:12, fontWeight:600, cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" };
+const BTN_GRAY= { padding:"4px 10px", fontSize:11, borderRadius:6, background:"#F9FAFB", color:"#6B7280", border:"1px solid #E5E7EB", cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" };
+const BTN_X   = { background:"none", border:"none", cursor:"pointer", fontSize:12, color:"#9CA3AF", padding:"0 2px", flexShrink:0 };
+const ATT_ROW = { display:"flex", alignItems:"center", gap:8, padding:"6px 10px", background:"#F9FAFB", borderRadius:6, marginBottom:4, fontSize:12, border:"1px solid #F3F4F6", minWidth:0 };
+const FLEX_ROW = { display:"flex", gap:6, alignItems:"center", minWidth:0, width:"100%" };
+const FLEX_INPUT = { flex:1, minWidth:0, width:0, padding:"5px 8px", border:"1px solid #E5E7EB", borderRadius:6, fontSize:12, background:"#fff", color:"#111", boxSizing:"border-box" };
 
 // ── UI Components ─────────────────────────────────────────────────────────────
 function Avatar({ userId, users, size=28 }) {
@@ -1271,8 +1311,11 @@ function RouteEditor({ route, users, curUser, onChange, onSave, onCancel }) {
 
 function NotifyPanel({ notify, setNotify, users, notifyConfig, curUser }) {
   const [emailIn, setEmailIn] = useState("");
+  const emailMap = userByEmailMap(users);
   const addEmail = () => { const e=emailIn.trim(); if(!e||!e.includes("@")||(notify.emailList||[]).includes(e))return; setNotify(p=>({...p,emailList:[...(p.emailList||[]),e]})); setEmailIn(""); };
   const remEmail = e => setNotify(p=>({...p,emailList:(p.emailList||[]).filter(x=>x!==e)}));
+  const pickable = users.filter(u=>u.email&&u.active&&!(notify.emailList||[]).includes(u.email));
+  const grouped = groupUsersByDept(pickable);
   const channels = [
     {key:"postToTeams",enabled:notifyConfig.teams?.enabled,label:"Microsoft Teams",icon:"🔵"},
     {key:"postToPowerAuto",enabled:notifyConfig.powerauto?.enabled,label:"SharePoint / Power Automate",icon:"🟣"},
@@ -1290,16 +1333,41 @@ function NotifyPanel({ notify, setNotify, users, notifyConfig, curUser }) {
             </span>
             <span style={{fontSize:10,fontWeight:700,color:"#065F46"}}>AUTO</span>
           </div>
-          <div style={{display:"flex",gap:6,marginBottom:5}}>
-            <input value={emailIn} onChange={e=>setEmailIn(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addEmail()} placeholder="กรอกอีเมล์..." style={{flex:1,padding:"5px 8px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:12}}/>
-            <button onClick={addEmail} style={BTN_GOLD}>เพิ่ม</button>
+          <div style={FLEX_ROW}>
+            <input value={emailIn} onChange={e=>setEmailIn(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addEmail()} placeholder="กรอกอีเมล์..." style={FLEX_INPUT}/>
+            <button onClick={addEmail} style={{...BTN_GOLD,padding:"5px 10px",fontSize:11}}>เพิ่ม</button>
           </div>
-          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:5}}>
-            {users.filter(u=>u.email&&u.active&&!(notify.emailList||[]).includes(u.email)).map(u=>(
-              <button key={u.id} onClick={()=>setNotify(p=>({...p,emailList:[...(p.emailList||[]),u.email]}))} style={{fontSize:10,padding:"2px 6px",borderRadius:4,background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",cursor:"pointer"}}>+ {u.name.split(" ")[0]}</button>
+          <div style={{maxHeight:220,overflowY:"auto",marginBottom:6,marginTop:6,paddingRight:2}}>
+            {grouped.map(({ dept, users: deptUsers }) => (
+              <div key={dept} style={{marginBottom:8}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#9CA3AF",marginBottom:4,paddingBottom:2,borderBottom:"1px solid #F3F4F6"}}>{dept}</div>
+                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                  {deptUsers.map(u=>(
+                    <button key={u.id} title={formatUserLabel(u,{withEmail:true})}
+                      onClick={()=>setNotify(p=>({...p,emailList:[...(p.emailList||[]),u.email]}))}
+                      style={{fontSize:10,padding:"3px 8px",borderRadius:4,background:"#F9FAFB",color:"#374151",border:"1px solid #E5E7EB",cursor:"pointer",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      + {formatUserLabel(u,{withDept:false})}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
+            {!grouped.length && <div style={{fontSize:11,color:"#9CA3AF"}}>ไม่มี User ให้เลือกเพิ่ม</div>}
           </div>
-          {(notify.emailList||[]).map(e=><div key={e} style={ATT_ROW}><span>✉</span><span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e}</span><button onClick={()=>remEmail(e)} style={BTN_X}>✕</button></div>)}
+          {(notify.emailList||[]).map(e=>{
+            const u = emailMap[String(e).toLowerCase()];
+            const label = u ? formatUserLabel(u) : e;
+            return (
+              <div key={e} style={ATT_ROW}>
+                <span style={{flexShrink:0}}>✉</span>
+                <div style={{flex:1,minWidth:0,overflow:"hidden"}}>
+                  <div style={{fontSize:12,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</div>
+                  {u && <div style={{fontSize:10,color:"#9CA3AF",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e}</div>}
+                </div>
+                <button onClick={()=>remEmail(e)} style={BTN_X}>✕</button>
+              </div>
+            );
+          })}
           {!(notify.emailList||[]).length&&<div style={{fontSize:11,color:"#9CA3AF"}}>ยังไม่มีผู้รับ</div>}
         </>) : <div style={{fontSize:11,color:"#9CA3AF",padding:"4px 8px",background:"#F9FAFB",borderRadius:5}}>ยังไม่ได้ตั้งค่า → ไปที่ ตั้งค่าระบบ</div>}
       </div>
@@ -1701,47 +1769,54 @@ function WorkflowLevelBuilder({ levels, setLevels, users, curUser }) {
   const remApprover = (li,ai) => setLevels(p=>p.map((lv,j)=>j!==li?lv:{...lv,approvers:(lv.approvers||[]).filter((_,k)=>k!==ai)}));
 
   const avail = users.filter(u => u.id !== curUser.id && u.active);
+  const groupedAvail = groupUsersByDept(avail);
 
   return (
-    <div>
+    <div style={{minWidth:0,maxWidth:"100%"}}>
       {levels.map((lv,li)=>(
-        <div key={lv.id||li} style={{border:"1px solid #E5E7EB",borderRadius:8,padding:12,marginBottom:8,background:"#F9FAFB"}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-            <span style={{fontSize:12,fontWeight:600,color:"#374151",minWidth:52}}>ลำดับที่ {lv.level}</span>
+        <div key={lv.id||li} style={{border:"1px solid #E5E7EB",borderRadius:8,padding:12,marginBottom:8,background:"#F9FAFB",minWidth:0,overflow:"hidden"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap",minWidth:0}}>
+            <span style={{fontSize:12,fontWeight:600,color:"#374151",minWidth:52,flexShrink:0}}>ลำดับที่ {lv.level}</span>
             {/* mode toggle */}
-            <div style={{display:"flex",gap:0,border:"1px solid #E5E7EB",borderRadius:6,overflow:"hidden"}}>
+            <div style={{display:"flex",gap:0,border:"1px solid #E5E7EB",borderRadius:6,overflow:"hidden",flexShrink:0}}>
               {["all","any"].map(m=>(
                 <button key={m} onClick={()=>setMode(li,m)} style={{padding:"3px 10px",fontSize:11,fontWeight:500,background:lv.mode===m?GOLD:"#fff",color:lv.mode===m?BLACK:"#6B7280",border:"none",cursor:"pointer"}}>
                   {m==="all"?"ทุกคน":"ผู้ใดผู้หนึ่ง"}
                 </button>
               ))}
             </div>
-            <div style={{marginLeft:"auto",display:"flex",gap:4}}>
-              <button onClick={()=>moveLevel(li,-1)} disabled={li===0} style={{...BTN_X,opacity:li===0?.3:1}}>↑</button>
-              <button onClick={()=>moveLevel(li,1)} disabled={li===levels.length-1} style={{...BTN_X,opacity:li===levels.length-1?.3:1}}>↓</button>
+            <div style={{marginLeft:"auto",display:"flex",gap:4,flexShrink:0}}>
+              <button onClick={()=>moveLevel(li,-1)} disabled={li===0} style={{...BTN_X,opacity:li===0?0.3:1}}>↑</button>
+              <button onClick={()=>moveLevel(li,1)} disabled={li===levels.length-1} style={{...BTN_X,opacity:li===levels.length-1?0.3:1}}>↓</button>
               <button onClick={()=>remLevel(li)} style={{...BTN_X,color:"#DC2626"}}>✕</button>
             </div>
           </div>
           {/* approvers in this level */}
           {(lv.approvers||[]).map((ap,ai)=>(
-            <div key={ai} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 6px",background:"#fff",borderRadius:5,marginBottom:4,border:"1px solid #F3F4F6"}}>
-              {ap.userId?<Avatar userId={ap.userId} users={users} size={18}/>:<span style={{fontSize:14}}>✉</span>}
-              <span style={{flex:1,fontSize:11,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ap.name||ap.email}</span>
+            <div key={ai} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 6px",background:"#fff",borderRadius:5,marginBottom:4,border:"1px solid #F3F4F6",minWidth:0}}>
+              {ap.userId?<Avatar userId={ap.userId} users={users} size={18}/>:<span style={{fontSize:14,flexShrink:0}}>✉</span>}
+              <span style={{flex:1,minWidth:0,fontSize:11,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={ap.name||ap.email}>{ap.userId ? formatUserLabel(users.find(x=>x.id===ap.userId)||{name:ap.name,email:ap.email}) : (ap.name||ap.email)}</span>
               <button onClick={()=>remApprover(li,ai)} style={{...BTN_X,color:"#DC2626"}}>✕</button>
             </div>
           ))}
           {/* add from user list */}
-          <div style={{display:"flex",gap:5,marginTop:4}}>
-            <select value={newUserId[li]||""} onChange={e=>setNewUserId(p=>({...p,[li]:e.target.value}))} style={{flex:1,padding:"5px 7px",border:"1px solid #E5E7EB",borderRadius:5,fontSize:11}}>
+          <div style={{...FLEX_ROW,marginTop:4}}>
+            <select value={newUserId[li]||""} onChange={e=>setNewUserId(p=>({...p,[li]:e.target.value}))} style={{...FLEX_INPUT,fontSize:11,padding:"5px 7px"}}>
               <option value="">เลือก User ในระบบ...</option>
-              {avail.filter(u=>!(lv.approvers||[]).find(a=>a.userId===u.id)).map(u=><option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
+              {groupedAvail.map(({ dept, users: deptUsers }) => (
+                <optgroup key={dept} label={dept}>
+                  {deptUsers.filter(u=>!(lv.approvers||[]).find(a=>a.userId===u.id)).map(u=>(
+                    <option key={u.id} value={u.id}>{formatUserLabel(u)}</option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
             <button onClick={()=>addApproverFromUser(li)} style={{...BTN_GOLD,padding:"5px 10px",fontSize:11}}>เพิ่ม</button>
           </div>
           {/* [6] add by email */}
-          <div style={{display:"flex",gap:5,marginTop:4}}>
-            <input value={newEmail[li]||""} onChange={e=>setNewEmail(p=>({...p,[li]:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addApproverFromEmail(li)} placeholder="หรือระบุอีเมล์ภายนอก..." style={{flex:1,padding:"5px 7px",border:"1px solid #E5E7EB",borderRadius:5,fontSize:11}}/>
-            <button onClick={()=>addApproverFromEmail(li)} style={{...BTN_GRAY,fontSize:11}}>+ อีเมล์</button>
+          <div style={{...FLEX_ROW,marginTop:4}}>
+            <input value={newEmail[li]||""} onChange={e=>setNewEmail(p=>({...p,[li]:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addApproverFromEmail(li)} placeholder="หรือระบุอีเมล์ภายนอก..." style={{...FLEX_INPUT,fontSize:11,padding:"5px 7px"}}/>
+            <button onClick={()=>addApproverFromEmail(li)} style={{...BTN_GRAY,fontSize:11,padding:"5px 8px"}}>+ อีเมล์</button>
           </div>
         </div>
       ))}
@@ -2256,7 +2331,7 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, route
   const setLevels = fn => setEditMemo(p=>({...p,workflowLevels:typeof fn==="function"?fn(p.workflowLevels||[]):fn}));
 
   return (
-    <div style={{padding:24}}>
+    <div style={{padding:24,minWidth:0,overflow:"hidden",boxSizing:"border-box"}}>
       {showPreview && (
         <ErrorBoundary>
           <MemoPDFPreview memo={editMemo} users={users} curUser={curUser}
@@ -2279,8 +2354,8 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, route
           👁 ตัวอย่าง / PDF
         </button>
       </div>
-      <div className="two-col" style={{display:"grid"}}>
-        <div>
+      <div className="two-col create-layout">
+        <div style={{minWidth:0}}>
           <Section>
             <Field label="ชื่อเรื่อง *"><input value={editMemo.title||""} onChange={e=>update("title",e.target.value)} placeholder="กรอกชื่อเรื่อง..." style={IS}/></Field>
             <Field label="หมวดหมู่"><CategoryField value={editMemo.category||"ทั่วไป"} onChange={v=>update("category",v)}/></Field>
@@ -2343,7 +2418,7 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, route
             </button>
           )}
         </div>
-        <div>
+        <div className="create-sidebar">
           <Section title="ขั้นตอนการอนุมัติ">
             {/* Route Template Picker */}
             {(routeTemplates||[]).filter(r=>r.createdBy===curUser.id).length > 0 && (
@@ -2699,8 +2774,8 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
   const [editing,setEditing]=useState(null); const [delConfirm,setDelConfirm]=useState(null); const [importPreview,setImportPreview]=useState(null);
   const [importSendNew,setImportSendNew]=useState(true); const [importSendUpdated,setImportSendUpdated]=useState(false);
   const [importing,setImporting]=useState(false); const [importStatus,setImportStatus]=useState("");
-  const xlsxRef=useRef(); const blank={name:"",loginId:"",password:"",email:"",dept:"",role:"user",active:true,sendNotifyEmail:false};
-  const handleXlsxImport=async(e)=>{const file=e.target.files[0];if(!file)return;e.target.value="";try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:""});const parsed=rows.map(r=>{const name=String(r["ชื่อ-สกุล"]||r["name"]||"").trim();const loginId=normalizeLoginId(r["username"]||r["Username"]||r["loginId"]||String(name).replace(/\s+/g,"."));const rawEmail=String(r["email"]||r["Email"]||"").trim().toLowerCase();return{name,loginId,email:rawEmail||makeLoginEmail(loginId),password:String(r["รหัสผ่าน"]||r["password"]||"").trim(),dept:String(r["แผนก"]||r["dept"]||"").trim(),role:["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase())?String(r["สิทธิ์"]||r["role"]||"user").toLowerCase():"user",active:true};}).filter(r=>r.name&&r.loginId&&r.password.length>=6);if(!parsed.length){showToast("ไม่พบข้อมูลที่ถูกต้อง","error");return;}setImportSendNew(true);setImportSendUpdated(false);setImportPreview(parsed);}catch(err){showToast("อ่านไฟล์ไม่ได้: "+err.message,"error");}};
+  const xlsxRef=useRef(); const blank={name:"",nickname:"",loginId:"",password:"",email:"",dept:"",role:"user",active:true,sendNotifyEmail:false};
+  const handleXlsxImport=async(e)=>{const file=e.target.files[0];if(!file)return;e.target.value="";try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:""});const parsed=rows.map(r=>{const name=String(r["ชื่อ-สกุล"]||r["name"]||"").trim();const loginId=normalizeLoginId(r["username"]||r["Username"]||r["loginId"]||String(name).replace(/\s+/g,"."));const rawEmail=String(r["email"]||r["Email"]||"").trim().toLowerCase();return{name,nickname:String(r["ชื่อเล่น"]||r["nickname"]||"").trim(),loginId,email:rawEmail||makeLoginEmail(loginId),password:String(r["รหัสผ่าน"]||r["password"]||"").trim(),dept:String(r["แผนก"]||r["dept"]||"").trim(),role:["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase())?String(r["สิทธิ์"]||r["role"]||"user").toLowerCase():"user",active:true};}).filter(r=>r.name&&r.loginId&&r.password.length>=6);if(!parsed.length){showToast("ไม่พบข้อมูลที่ถูกต้อง","error");return;}setImportSendNew(true);setImportSendUpdated(false);setImportPreview(parsed);}catch(err){showToast("อ่านไฟล์ไม่ได้: "+err.message,"error");}};
   const confirmImport=async()=>{
     if(!importPreview || importing) return;
     setImporting(true);
@@ -2717,7 +2792,7 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
 
         if (dup) {
           existing[dup.id] = {
-            ...dup, name: r.name, loginId: r.loginId, email: r.email, dept: r.dept, role: r.role,
+            ...dup, name: r.name, nickname: r.nickname || dup.nickname || "", loginId: r.loginId, email: r.email, dept: r.dept, role: r.role,
             ...(shouldSendUpdated && r.password ? { mustChangePassword: true } : {}),
           };
           updated++;
@@ -2855,7 +2930,7 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
         <div><div style={{fontSize:18,fontWeight:600,color:"#111"}}>จัดการ User</div><div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>{users.length} บัญชี</div></div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <input ref={xlsxRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleXlsxImport}/>
-          <button onClick={async()=>{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const ws=XLSX.utils.aoa_to_sheet([["ชื่อ-สกุล","username","email","รหัสผ่าน","แผนก","สิทธิ์"],["สมชาย ใจดี","somchai","somchai@tgm.co.th","123456","IT","user"]]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Users");XLSX.writeFile(wb,"user_template.xlsx");}} style={{...BTN_GRAY,padding:"6px 12px",fontSize:12}}>⬇ Template</button>
+          <button onClick={async()=>{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const ws=XLSX.utils.aoa_to_sheet([["ชื่อ-สกุล","ชื่อเล่น","username","email","รหัสผ่าน","แผนก","สิทธิ์"],["สมชาย ใจดี","ชาย","somchai","somchai@tgm.co.th","123456","IT","user"]]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Users");XLSX.writeFile(wb,"user_template.xlsx");}} style={{...BTN_GRAY,padding:"6px 12px",fontSize:12}}>⬇ Template</button>
           <button onClick={()=>xlsxRef.current?.click()} style={{padding:"7px 14px",background:"#ECFDF5",color:"#065F46",border:"1px solid #A7F3D0",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>📥 Import Excel</button>
           <button onClick={()=>setEditing(blank)} style={BTN_GOLD}>+ เพิ่ม User</button>
         </div>
@@ -2897,6 +2972,7 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
           <div style={{fontSize:15,fontWeight:600,marginBottom:16,color:"#111"}}>{editing.id?"แก้ไข User":"เพิ่ม User ใหม่"}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
             <Field label="ชื่อ-สกุล *"><input value={editing.name} onChange={e=>setEditing(p=>({...p,name:e.target.value}))} style={IS}/></Field>
+            <Field label="ชื่อเล่น"><input value={editing.nickname||""} onChange={e=>setEditing(p=>({...p,nickname:e.target.value}))} placeholder="เช่น บูม, ฝน" style={IS}/></Field>
             <Field label="แผนก"><input value={editing.dept||""} onChange={e=>setEditing(p=>({...p,dept:e.target.value}))} style={IS}/></Field>
             <div style={{gridColumn:"1/-1"}}><Field label="Username *"><input value={editing.loginId||loginIdFromUser(editing)} onChange={e=>setEditing(p=>({...p,loginId:e.target.value}))} style={IS} disabled={!!editing.id}/></Field></div>
               <div style={{gridColumn:"1/-1"}}><Field label="Email"><input value={editing.email||""} onChange={e=>setEditing(p=>({...p,email:e.target.value}))} placeholder="user@yourdomain.com" style={IS}/></Field></div>

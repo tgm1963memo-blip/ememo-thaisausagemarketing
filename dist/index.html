@@ -11,7 +11,7 @@
       html, body, #root { height: 100%; margin: 0; padding: 0; }
       body { font-family: 'Noto Sans Thai', 'Sarabun', sans-serif; }
     </style>
-    <script type="module" crossorigin src="/assets/index-q9Twq-bo.js"></script>
+    <script type="module" crossorigin src="/assets/index-C_FTO2Pf.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/react-vendor-wGySg1uH.js">
     <link rel="modulepreload" crossorigin href="/assets/firebase-auth-DqksHLWs.js">
     <link rel="modulepreload" crossorigin href="/assets/firebase-db-DDK17tzy.js">
@@ -26,7 +26,9 @@
       /* Ensure buttons and selects don't force larger width than their containers */
       button, select, input, textarea { max-width: 100%; box-sizing: border-box; }
       /* Responsive two-column layout used in CreateView */
-      .two-col { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
+      .two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); gap: 16px; align-items: start; width: 100%; }
+      .create-layout { overflow: hidden; }
+      .create-sidebar { min-width: 0; max-width: 100%; overflow: hidden; }
       @media (max-width: 880px) { .two-col { grid-template-columns: 1fr; } }
     </style>
   </body>
