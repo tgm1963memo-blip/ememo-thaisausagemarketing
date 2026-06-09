@@ -6,6 +6,8 @@ import Login from "./Login";
 import ResetPassword from "./ResetPassword";
 import { isResetPasswordLink } from "./authActionParams";
 import ChangePasswordModal from "./ChangePasswordModal";
+import OnboardingTour from "./OnboardingTour";
+import { getOnboardingSteps } from "./onboardingSteps";
 import {
   DEFAULT_EMAIL_TEMPLATES,
   EMAIL_PLACEHOLDERS,
@@ -2824,7 +2826,7 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
         } else {
           const id = newId("u");
           const { password, ...userData } = r;
-          existing[id] = { ...userData, id, mustChangePassword: true };
+          existing[id] = { ...userData, id, mustChangePassword: true, onboardingPending: true };
           added++;
           try {
             await createAuthUserREST(r.email, r.password);
@@ -2882,7 +2884,10 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
     const id=editing.id||newId("u");
     const { password: _password, sendNotifyEmail, ...editingSafe } = editing;
     const newUser={...editingSafe,id,name,loginId,email};
-    if (!editing.id) newUser.mustChangePassword = true;
+    if (!editing.id) {
+      newUser.mustChangePassword = true;
+      newUser.onboardingPending = true;
+    }
     const newObj={...Object.fromEntries(users.map(u=>[u.id,u])),[id]:newUser};
     await writeUsers(newObj);
     if(!editing.id){
@@ -3632,12 +3637,15 @@ export default function EMemo() {
   const [showAiUpdate,    setShowAiUpdate]    = useState(false);
 
   useEffect(()=>{ const u=onAuthStateChanged(auth,u=>setAuthUser(u||null)); return()=>u(); },[]);
-  useEffect(()=>{
-    if(!localStorage.getItem("ememo_ai_update_v1_seen")){
-      const t=setTimeout(()=>setShowAiUpdate(true),800);
-      return()=>clearTimeout(t);
+  useEffect(() => {
+    if (!authUser || !data) return;
+    const u = Object.values(data.users || {}).find(x => x.email === authUser.email);
+    if (u?.onboardingPending || u?.mustChangePassword) return;
+    if (!localStorage.getItem("ememo_ai_update_v1_seen")) {
+      const t = setTimeout(() => setShowAiUpdate(true), 800);
+      return () => clearTimeout(t);
     }
-  },[]);
+  }, [authUser, data]);
   useEffect(()=>{ if(!authUser)return; const u=onValue(ref(db,DATA_PATH),snap=>setData(snap.val()||{users:{},memos:{},notifyConfig:{}})); return()=>u(); },[authUser]);
 
   // ── History API (must be before early returns — Rules of Hooks) ──────────
@@ -3934,6 +3942,14 @@ export default function EMemo() {
     return <ChangePasswordModal user={curUser} showToast={showToast} />;
   }
 
+  const finishOnboarding = async () => {
+    await update(ref(db, `${DATA_PATH}/users/${curUser.id}`), {
+      onboardingPending: false,
+      onboardingCompleted: true,
+    });
+    showToast("ยินดีต้อนรับสู่ E-Memo — พร้อมใช้งานแล้ว");
+  };
+
   return (
     <div style={{fontFamily:"'Noto Sans Thai','Sarabun',sans-serif",display:"flex",height:"100vh",overflow:"hidden"}}>
       <style>{`
@@ -3959,6 +3975,19 @@ export default function EMemo() {
         proxyFor={modal.proxyFor?.name||modal.proxyFor?.email||null}
       />}
       {recallConfirm&&<RecallSmartModal memo={recallConfirm.memo} onRecallAndEdit={()=>doRecall(recallConfirm.memo,true)} onRecallOnly={()=>doRecall(recallConfirm.memo,false)} onCancel={()=>setRecallConfirm(null)}/>}
+      {curUser.onboardingPending && (
+        <OnboardingTour
+          steps={getOnboardingSteps(curUser.role)}
+          onStepChange={(step) => {
+            if (step?.view) {
+              setView(step.view);
+              pushHistory(step.view);
+            }
+          }}
+          onComplete={finishOnboarding}
+          onSkip={finishOnboarding}
+        />
+      )}
       {showAiUpdate&&<AiFeatureUpdateModal onClose={()=>{ setShowAiUpdate(false); localStorage.setItem("ememo_ai_update_v1_seen","1"); }}/>}
       {showProfile&&<ProfileModal curUser={curUser} onClose={()=>setShowProfile(false)} showToast={showToast}/>}
       {showTplManager&&can(curUser.role,"settings")&&<DocxTemplateManager templates={pdfTemplates} onSave={async tpls=>{await writePdfTemplates(tpls);showToast("บันทึก Template แล้ว");setShowTplManager(false);}} onClose={()=>setShowTplManager(false)}/>}
@@ -3972,8 +4001,8 @@ export default function EMemo() {
           <span style={{fontSize:13,fontWeight:600,color:GOLD}}>E-Memo</span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <button onClick={startCreate} style={{...BTN_GOLD,padding:"6px 12px",fontSize:12,borderRadius:6}}>+ สร้าง Memo</button>
-          <button onClick={()=>setShowProfile(true)} style={{background:"transparent",border:"none",cursor:"pointer",padding:0}}>
+          <button data-tour="create-memo" onClick={startCreate} style={{...BTN_GOLD,padding:"6px 12px",fontSize:12,borderRadius:6}}>+ สร้าง Memo</button>
+          <button data-tour="profile" onClick={()=>setShowProfile(true)} style={{background:"transparent",border:"none",cursor:"pointer",padding:0}}>
             <Avatar userId={curUser.id} users={users.length?users:[curUser]} size={28}/>
           </button>
         </div>
@@ -3988,10 +4017,10 @@ export default function EMemo() {
             <div><div style={{fontSize:12,fontWeight:600,color:GOLD,letterSpacing:.3}}>E-Memo System</div><div style={{fontSize:9,color:"#555",lineHeight:1.3,marginTop:1}}>ไทยซอสเซส มาร์เก็ตติ้ง</div></div>
           </div>
         </div>
-        <div style={{padding:"10px 10px 6px"}}><button onClick={startCreate} style={{...BTN_GOLD,width:"100%",padding:"9px",fontSize:12,borderRadius:6}}>+ สร้าง Memo ใหม่</button></div>
+        <div style={{padding:"10px 10px 6px"}}><button data-tour="create-memo" onClick={startCreate} style={{...BTN_GOLD,width:"100%",padding:"9px",fontSize:12,borderRadius:6}}>+ สร้าง Memo ใหม่</button></div>
         <nav style={{flex:1,padding:"4px 8px",overflowY:"auto"}}>
           {NAV.filter(n=>n.roles.includes(curUser.role)).map(n=>(
-            <button key={n.k} onClick={()=>{ setView(n.k); pushHistory(n.k); }} style={{width:"100%",padding:"8px 10px",borderRadius:6,background:view===n.k?"#1e1e1e":"transparent",color:view===n.k?GOLD:"#888",border:"none",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,marginBottom:1,textAlign:"left"}}>
+            <button key={n.k} data-tour={`nav-${n.k}`} onClick={()=>{ setView(n.k); pushHistory(n.k); }} style={{width:"100%",padding:"8px 10px",borderRadius:6,background:view===n.k?"#1e1e1e":"transparent",color:view===n.k?GOLD:"#888",border:"none",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,marginBottom:1,textAlign:"left"}}>
               <span style={{fontSize:13,width:16,textAlign:"center"}}>{n.i}</span>
               <span style={{flex:1}}>{n.l}</span>
               {n.badge?<span style={{background:"#DC2626",color:"#fff",borderRadius:10,fontSize:10,padding:"1px 5px",fontWeight:600}}>{n.badge}</span>:null}
@@ -3999,7 +4028,7 @@ export default function EMemo() {
           ))}
         </nav>
         <div style={{borderTop:"1px solid #222",padding:"10px 12px"}}>
-          <button onClick={()=>setShowProfile(true)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,marginBottom:8,background:"transparent",border:"none",cursor:"pointer",padding:"2px 0"}}>
+          <button data-tour="profile" onClick={()=>setShowProfile(true)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,marginBottom:8,background:"transparent",border:"none",cursor:"pointer",padding:"2px 0"}}>
             <Avatar userId={curUser.id} users={users.length?users:[curUser]} size={26}/>
             <div style={{minWidth:0,textAlign:"left"}}>
               <div style={{fontSize:11,fontWeight:500,color:"#ddd",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{curUser.name}</div>
@@ -4031,7 +4060,7 @@ export default function EMemo() {
       {/* Mobile Bottom Navigation */}
       <div className="app-mobile-bottomnav">
         {mobileNavItems.map(n=>(
-          <button key={n.k} onClick={()=>{ setView(n.k); pushHistory(n.k); }}
+          <button key={n.k} data-tour={`nav-${n.k}`} onClick={()=>{ setView(n.k); pushHistory(n.k); }}
             style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,
               background:"transparent",border:"none",cursor:"pointer",
               color:view===n.k?GOLD:"#666",padding:"6px 0",position:"relative",fontFamily:"inherit"}}>
