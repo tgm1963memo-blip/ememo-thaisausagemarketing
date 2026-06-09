@@ -2777,6 +2777,7 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
   const [editing,setEditing]=useState(null); const [delConfirm,setDelConfirm]=useState(null); const [importPreview,setImportPreview]=useState(null);
   const [importSendNew,setImportSendNew]=useState(true); const [importSendUpdated,setImportSendUpdated]=useState(false);
   const [importing,setImporting]=useState(false); const [importStatus,setImportStatus]=useState("");
+  const [deptFilter,setDeptFilter]=useState("");
   const xlsxRef=useRef(); const blank={name:"",nickname:"",loginId:"",password:"",email:"",dept:"",role:"user",active:true,sendNotifyEmail:false};
   const handleXlsxImport=async(e)=>{const file=e.target.files[0];if(!file)return;e.target.value="";try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:""});const parsed=rows.map(r=>{const name=String(r["ชื่อ-สกุล"]||r["name"]||"").trim();const loginId=normalizeLoginId(r["username"]||r["Username"]||r["loginId"]||String(name).replace(/\s+/g,"."));const rawEmail=String(r["email"]||r["Email"]||"").trim().toLowerCase();return{name,nickname:String(r["ชื่อเล่น"]||r["nickname"]||"").trim(),loginId,email:rawEmail||makeLoginEmail(loginId),password:String(r["รหัสผ่าน"]||r["password"]||"").trim(),dept:String(r["แผนก"]||r["dept"]||"").trim(),role:["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase())?String(r["สิทธิ์"]||r["role"]||"user").toLowerCase():"user",active:true};}).filter(r=>r.name&&r.loginId&&r.password.length>=6);if(!parsed.length){showToast("ไม่พบข้อมูลที่ถูกต้อง","error");return;}setImportSendNew(true);setImportSendUpdated(false);setImportPreview(parsed);}catch(err){showToast("อ่านไฟล์ไม่ได้: "+err.message,"error");}};
   const confirmImport=async()=>{
@@ -2930,10 +2931,21 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
   const del=async u=>{const newObj=Object.fromEntries(users.filter(x=>x.id!==u.id).map(x=>[x.id,x]));await writeUsers(newObj);showToast("ลบแล้ว");setDelConfirm(null);};
   // [4] Role descriptions with permission list
   const RDESC={superadmin:"เข้าถึงทุกส่วน จัดการ User ตั้งค่าระบบ Template รายงาน",admin:"สร้าง อนุมัติ ดู Memo ทั้งหมด ดูรายงาน",user:"สร้าง Memo ของตัวเอง อนุมัติ Memo ที่ได้รับมอบหมาย"};
+  const NO_DEPT_KEY = "__no_dept__";
+  const deptOptions = [...new Set(users.map(u => u.dept?.trim() || NO_DEPT_KEY))].sort((a, b) => {
+    if (a === NO_DEPT_KEY) return 1;
+    if (b === NO_DEPT_KEY) return -1;
+    return a.localeCompare(b, "th");
+  });
+  const deptLabel = (key) => key === NO_DEPT_KEY ? "— ไม่ระบุแผนก —" : key;
+  const userDeptKey = (u) => u.dept?.trim() || NO_DEPT_KEY;
+  const filteredUsers = deptFilter
+    ? users.filter(u => userDeptKey(u) === deptFilter)
+    : users;
   return (
     <div style={{padding:24}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-        <div><div style={{fontSize:18,fontWeight:600,color:"#111"}}>จัดการ User</div><div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>{users.length} บัญชี</div></div>
+        <div><div style={{fontSize:18,fontWeight:600,color:"#111"}}>จัดการ User</div><div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>{deptFilter ? `${filteredUsers.length} / ${users.length}` : users.length} บัญชี</div></div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <input ref={xlsxRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleXlsxImport}/>
           <button onClick={async()=>{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const ws=XLSX.utils.aoa_to_sheet([["ชื่อ-สกุล","ชื่อเล่น","username","email","รหัสผ่าน","แผนก","สิทธิ์"],["สมชาย ใจดี","ชาย","somchai","somchai@tgm.co.th","123456","IT","user"]]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Users");XLSX.writeFile(wb,"user_template.xlsx");}} style={{...BTN_GRAY,padding:"6px 12px",fontSize:12}}>⬇ Template</button>
@@ -2942,13 +2954,33 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
         </div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
-        {["superadmin","admin","user"].map(r=>{const c=ROLE_CONFIG[r];const n=users.filter(u=>u.role===r&&u.active).length;return <div key={r} style={{background:c.bg,border:`1px solid ${c.border}`,borderRadius:8,padding:"10px 14px"}}><div style={{fontSize:11,color:c.text,fontWeight:600}}>{c.label}</div><div style={{fontSize:22,fontWeight:700,color:c.text,marginTop:2}}>{n}</div></div>;})}
+        {["superadmin","admin","user"].map(r=>{const c=ROLE_CONFIG[r];const n=filteredUsers.filter(u=>u.role===r&&u.active).length;return <div key={r} style={{background:c.bg,border:`1px solid ${c.border}`,borderRadius:8,padding:"10px 14px"}}><div style={{fontSize:11,color:c.text,fontWeight:600}}>{c.label}</div><div style={{fontSize:22,fontWeight:700,color:c.text,marginTop:2}}>{n}</div></div>;})}
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:600,color:"#6B7280"}}>กรองแผนก</span>
+        <select
+          value={deptFilter}
+          onChange={e => setDeptFilter(e.target.value)}
+          style={{...IS,width:"auto",minWidth:200,maxWidth:"100%",fontSize:12,padding:"7px 10px",cursor:"pointer"}}
+        >
+          <option value="">ทุกแผนก ({users.length})</option>
+          {deptOptions.map(d => (
+            <option key={d} value={d}>
+              {deptLabel(d)} ({users.filter(u => userDeptKey(u) === d).length})
+            </option>
+          ))}
+        </select>
+        {deptFilter && (
+          <button onClick={() => setDeptFilter("")} style={{...BTN_GRAY,padding:"6px 12px",fontSize:12}}>ล้างตัวกรอง</button>
+        )}
       </div>
       <div style={{background:"#fff",border:"1px solid #F3F4F6",borderRadius:10,overflow:"hidden"}}>
         <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr 1fr 1fr auto",padding:"8px 16px",borderBottom:"1px solid #F3F4F6",background:"#F9FAFB"}}>
           {["ชื่อ","Username","แผนก","สิทธิ์","การมองเห็น","สถานะ",""].map((h,i)=><div key={i} style={{fontSize:11,fontWeight:600,color:"#9CA3AF"}}>{h}</div>)}
         </div>
-        {users.map(u=>{
+        {filteredUsers.length === 0 ? (
+          <div style={{padding:"32px 16px",textAlign:"center",color:"#9CA3AF",fontSize:13}}>ไม่พบ User ในแผนกนี้</div>
+        ) : filteredUsers.map(u=>{
           const scope = u.viewScope||"dept";
           const scopeInfo = scope==="all"||u.role==="superadmin"||u.role==="admin"
             ? {l:"👁 ทั้งหมด",     c:"#1E40AF", bg:"#EFF6FF"}
