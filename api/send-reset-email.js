@@ -7,20 +7,16 @@ import {
   renderTemplate,
   resolveTemplateType,
 } from "./email-templates.js";
+import { getAppUrl } from "./app-url.js";
 
-const DEFAULT_APP_URL = "https://e-memo-thaisausagemarketing.vercel.app";
-
-function getAppUrl() {
-  return (process.env.APP_URL || DEFAULT_APP_URL).replace(/\/+$/, "");
-}
-
-async function createResetLink(email) {
+async function createResetLink(email, appUrl) {
   initFirebaseAdmin();
-  return admin.auth().generatePasswordResetLink(email);
+  return admin.auth().generatePasswordResetLink(email, {
+    url: `${appUrl}/?mode=resetPassword`,
+  });
 }
 
-function createAppResetLink(firebaseLink) {
-  const appUrl = getAppUrl();
+function createAppResetLink(firebaseLink, appUrl) {
   const parsedLink = new URL(firebaseLink);
   const oobCode = parsedLink.searchParams.get("oobCode");
   const mode = parsedLink.searchParams.get("mode") || "resetPassword";
@@ -84,9 +80,9 @@ export default async function handler(req, res) {
   const templateType = resolveTemplateType(body);
 
   try {
-    const firebaseResetLink = await createResetLink(normalizedEmail);
-    const resetLink = createAppResetLink(firebaseResetLink);
     const appUrl = getAppUrl();
+    const firebaseResetLink = await createResetLink(normalizedEmail, appUrl);
+    const resetLink = createAppResetLink(firebaseResetLink, appUrl);
     const transporter = createTransporter();
 
     let storedTemplates = null;

@@ -1,19 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { confirmPasswordReset, verifyPasswordResetCode } from "firebase/auth";
 import { auth } from "./firebase";
+import { getAuthActionParams } from "./authActionParams";
 
 const GOLD = "#D4AF37";
 
-function getResetParams() {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    mode: params.get("mode"),
-    oobCode: params.get("oobCode"),
-  };
-}
-
 export default function ResetPassword() {
-  const { oobCode } = useMemo(getResetParams, []);
+  const { oobCode } = useMemo(() => {
+    const params = getAuthActionParams();
+    return { mode: params.get("mode"), oobCode: params.get("oobCode") };
+  }, []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");

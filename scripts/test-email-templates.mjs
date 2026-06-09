@@ -5,6 +5,14 @@ import {
   getTemplateForType,
   resolveTemplateType,
 } from "../api/email-templates.js";
+import { getAppUrl, isPreviewDeploymentHost, PRODUCTION_APP_URL, resolveAppUrl } from "../api/app-url.js";
+
+const previewUrl = "https://ememo-thaisausagemarketing-tgm1963memo-blips-projects.vercel.app";
+console.assert(resolveAppUrl(previewUrl) === PRODUCTION_APP_URL, "preview URL must resolve to production");
+console.assert(resolveAppUrl("https://ememo-thaisausagemarketing.vercel.app") === "https://ememo-thaisausagemarketing.vercel.app");
+console.assert(isPreviewDeploymentHost("ememo-thaisausagemarketing-tgm1963memo-blips-projects.vercel.app"));
+console.assert(!isPreviewDeploymentHost("ememo-thaisausagemarketing.vercel.app"));
+console.log("✓ app-url");
 
 const vars = buildEmailVars({
   name: "สมชาย",
