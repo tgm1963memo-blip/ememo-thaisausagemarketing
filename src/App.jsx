@@ -4,7 +4,8 @@ import { ref, onValue, set, push, update } from "firebase/database";
 import { auth, db, DATA_PATH } from "./firebase";
 import Login from "./Login";
 import ResetPassword from "./ResetPassword";
-import { isResetPasswordLink } from "./authActionParams";
+import { isResetPasswordLink, isPublicMemoLink } from "./authActionParams";
+import PublicMemoView from "./PublicMemoView";
 import ChangePasswordModal from "./ChangePasswordModal";
 import OnboardingTour from "./OnboardingTour";
 import { getOnboardingSteps } from "./onboardingSteps";
@@ -291,6 +292,56 @@ const stripHtml = s => (s||"").replace(/<br\s*\/?>/gi,"\n").replace(/<[^>]+>/g,"
 
 const normalizeEmail = email => String(email || "").trim().toLowerCase();
 
+function generateShareToken() {
+  const arr = new Uint8Array(24);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function buildMemoShareLink(memo, appUrl = window.location.origin) {
+  if (!memo?.id || !memo?.shareToken) return appUrl;
+  const url = new URL(appUrl);
+  url.searchParams.set("viewMemo", memo.id);
+  url.searchParams.set("token", memo.shareToken);
+  return url.toString();
+}
+
+function isMemoCcRecipient(memo, userEmail) {
+  if (memo.status !== "approved") return false;
+  const email = normalizeEmail(userEmail);
+  if (!email) return false;
+  return (memo.notify?.emailList || []).some(e => normalizeEmail(e) === email);
+}
+
+async function runShareTokenBackfill(memosObj) {
+  try {
+    const res = await fetch(`${API_BASE}/api/backfill-share-tokens`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return data;
+  } catch (_) {
+    /* fallback to client-side update below */
+  }
+
+  const needs = Object.values(memosObj || {}).filter(m => m.status === "approved" && !m.shareToken);
+  if (!needs.length) return { updated: 0 };
+
+  const updates = Object.fromEntries(
+    needs.map(m => [`${DATA_PATH}/memos/${m.id}/shareToken`, generateShareToken()])
+  );
+  await update(ref(db), updates);
+  return { updated: needs.length };
+}
+
+function countMemosNeedingShareToken(memosObj) {
+  return Object.values(memosObj || {}).filter(m => m.status === "approved" && !m.shareToken).length;
+}
+
+function displayUserName(u) {
+  if (!u) return "-";
+  const { name, nickname } = parseNameAndNickname(String(u.name || "").replace(/^undefined/i, ""), u.nickname);
+  return nickname ? `${name} (${nickname})` : (name || "-");
+}
+
 function buildApprovedEmailRecipients(memo, users) {
   const recipients = new Map();
   const addRecipient = ({ email, name, userId, source }) => {
@@ -437,10 +488,13 @@ async function sendApprovedNotifications(cfg, memo, users) {
           </table>
           ${summary?`<div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:6px;padding:12px;margin:12px 0;font-size:12px;color:#374151;">${summary}${summary.length>=200?"...":""}</div>`:""}
           <div style="text-align:center;margin:20px 0;">
-            <a href="${appUrl}" style="background:#D4AF37;color:#111;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">
+            <a href="${buildMemoShareLink(memo, appUrl)}" style="background:#D4AF37;color:#111;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">
               ดูเอกสาร →
             </a>
           </div>
+          <p style="margin:0;font-size:11px;color:#9CA3AF;text-align:center;line-height:1.6;">
+            เปิดลิงก์นี้ได้โดยไม่ต้องมีบัญชีในระบบ — หากมีบัญชีแล้วสามารถดูได้ที่เมนู "CC ถึงฉัน"
+          </p>
           <div style="border-top:1px solid #F3F4F6;margin-top:20px;padding-top:12px;font-size:10px;color:#D1D5DB;text-align:center;">
             ${COMPANY} — E-Memo System
           </div>
@@ -2652,6 +2706,13 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
             {!(memo.workflowLevels||[]).length&&<div style={{fontSize:12,color:"#9CA3AF",textAlign:"center"}}>ยังไม่มีขั้นตอนการอนุมัติ</div>}
           </Section>
           {notifySummary.length>0&&<Section title="แจ้งเตือนเมื่ออนุมัติ"><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{notifySummary.map(s=><span key={s} style={{fontSize:11,background:"#F9FAFB",border:"1px solid #F3F4F6",borderRadius:5,padding:"3px 8px"}}>{s}</span>)}</div></Section>}
+          {memo.status==="approved"&&memo.shareToken&&(
+            <Section title="ลิงก์ดูเอกสาร (CC)">
+              <div style={{fontSize:11,color:"#6B7280",lineHeight:1.6,marginBottom:8}}>ผู้รับ CC เปิดลิงก์นี้ได้โดยไม่ต้องมีบัญชีในระบบ</div>
+              <div style={{fontSize:11,color:"#1E40AF",wordBreak:"break-all",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:6,padding:"8px 10px",marginBottom:8}}>{buildMemoShareLink(memo)}</div>
+              <button onClick={()=>{const link=buildMemoShareLink(memo);navigator.clipboard?.writeText(link).then(()=>alert("คัดลอกลิงก์แล้ว")).catch(()=>prompt("คัดลอกลิงก์:",link));}} style={{...BTN_GRAY,padding:"6px 12px",fontSize:12}}>📋 คัดลอกลิงก์</button>
+            </Section>
+          )}
           {canViewEmailNotifications && approvedEmailNotifications && (
             <Section title="สถานะอีเมลแจ้งผลอนุมัติ">
               <div style={{fontSize:10,color:"#9CA3AF",marginBottom:8}}>
@@ -2974,12 +3035,27 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
           <button onClick={() => setDeptFilter("")} style={{...BTN_GRAY,padding:"6px 12px",fontSize:12}}>ล้างตัวกรอง</button>
         )}
       </div>
-      <div style={{background:"#fff",border:"1px solid #F3F4F6",borderRadius:10,overflow:"hidden"}}>
-        <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr 1fr 1fr auto",padding:"8px 16px",borderBottom:"1px solid #F3F4F6",background:"#F9FAFB"}}>
-          {["ชื่อ","Username","แผนก","สิทธิ์","การมองเห็น","สถานะ",""].map((h,i)=><div key={i} style={{fontSize:11,fontWeight:600,color:"#9CA3AF"}}>{h}</div>)}
-        </div>
+      <div style={{background:"#fff",border:"1px solid #F3F4F6",borderRadius:10,overflow:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:860}}>
+          <colgroup>
+            <col style={{width:"22%"}} />
+            <col style={{width:"14%"}} />
+            <col style={{width:"14%"}} />
+            <col style={{width:"10%"}} />
+            <col style={{width:"14%"}} />
+            <col style={{width:"10%"}} />
+            <col style={{width:"16%"}} />
+          </colgroup>
+          <thead>
+            <tr style={{background:"#F9FAFB",borderBottom:"1px solid #F3F4F6"}}>
+              {["ชื่อ","Username","แผนก","สิทธิ์","การมองเห็น","สถานะ","จัดการ"].map(h=>(
+                <th key={h} style={{padding:"8px 12px",fontSize:11,fontWeight:600,color:"#9CA3AF",textAlign:"left",verticalAlign:"middle"}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
         {filteredUsers.length === 0 ? (
-          <div style={{padding:"32px 16px",textAlign:"center",color:"#9CA3AF",fontSize:13}}>ไม่พบ User ในแผนกนี้</div>
+          <tr><td colSpan={7} style={{padding:"32px 16px",textAlign:"center",color:"#9CA3AF",fontSize:13}}>ไม่พบ User ในแผนกนี้</td></tr>
         ) : filteredUsers.map(u=>{
           const scope = u.viewScope||"dept";
           const scopeInfo = scope==="all"||u.role==="superadmin"||u.role==="admin"
@@ -2988,22 +3064,34 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
             ? {l:"🔒 ตัวเอง",     c:"#6B7280", bg:"#F9FAFB"}
             : {l:`📁 ${u.dept||"แผนก"}`, c:"#7C3AED", bg:"#F5F3FF"};
           return (
-          <div key={u.id} style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 1fr 1fr 1fr auto",padding:"10px 16px",borderBottom:"1px solid #F3F4F6",alignItems:"center",opacity:u.active?1:.45}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}><Avatar userId={u.id} users={users} size={26}/><span style={{fontSize:12,fontWeight:u.id===curUser.id?600:400,color:"#374151"}}>{u.name}{u.id===curUser.id&&<span style={{fontSize:10,color:GOLD,marginLeft:4}}>(คุณ)</span>}</span></div>
-            <div style={{fontSize:12,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{loginIdFromUser(u)}</div>
-            <div style={{fontSize:12,color:"#374151"}}>{u.dept||"-"}</div>
-            <div><RoleBadge role={u.role}/></div>
-            <div><span style={{fontSize:10,fontWeight:500,color:scopeInfo.c,background:scopeInfo.bg,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap"}}>{scopeInfo.l}</span></div>
-            <div><span style={{fontSize:11,fontWeight:500,color:u.active?"#065F46":"#991B1B",background:u.active?"#ECFDF5":"#FFF1F1",border:`1px solid ${u.active?"#A7F3D0":"#FECACA"}`,borderRadius:4,padding:"2px 7px"}}>{u.active?"ใช้งาน":"ระงับ"}</span></div>
-            <div style={{display:"flex",gap:4}}>
+          <tr key={u.id} style={{borderBottom:"1px solid #F3F4F6",opacity:u.active?1:.45}}>
+            <td style={{padding:"10px 12px",verticalAlign:"middle"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+                <Avatar userId={u.id} users={users} size={26}/>
+                <span style={{fontSize:12,fontWeight:u.id===curUser.id?600:400,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {displayUserName(u)}
+                  {u.id===curUser.id&&<span style={{fontSize:10,color:GOLD,marginLeft:4}}>(คุณ)</span>}
+                </span>
+              </div>
+            </td>
+            <td style={{padding:"10px 12px",fontSize:12,color:"#6B7280",verticalAlign:"middle",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{loginIdFromUser(u)}</td>
+            <td style={{padding:"10px 12px",fontSize:12,color:"#374151",verticalAlign:"middle",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.dept||"-"}</td>
+            <td style={{padding:"10px 12px",verticalAlign:"middle"}}><RoleBadge role={u.role}/></td>
+            <td style={{padding:"10px 12px",verticalAlign:"middle"}}><span style={{fontSize:10,fontWeight:500,color:scopeInfo.c,background:scopeInfo.bg,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap",display:"inline-block"}}>{scopeInfo.l}</span></td>
+            <td style={{padding:"10px 12px",verticalAlign:"middle"}}><span style={{fontSize:11,fontWeight:500,color:u.active?"#065F46":"#991B1B",background:u.active?"#ECFDF5":"#FFF1F1",border:`1px solid ${u.active?"#A7F3D0":"#FECACA"}`,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap",display:"inline-block"}}>{u.active?"ใช้งาน":"ระงับ"}</span></td>
+            <td style={{padding:"10px 12px",verticalAlign:"middle"}}>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
               <button onClick={()=>setEditing({...u})} style={BTN_GRAY}>แก้ไข</button>
               <button onClick={async()=>{try{await sendResetEmailREST({email:u.email,name:u.name,loginId:loginIdFromUser(u),templateType:"forgot",emailTemplates});showToast("ส่งลิงก์รีเซ็ตรหัสผ่านให้ "+u.email+" แล้ว");}catch(e){showToast("ส่งไม่สำเร็จ: "+(e.message||e.code),"error");}}} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",cursor:"pointer"}} title="ส่งลิงก์รีเซ็ตรหัสผ่าน">🔑</button>
               <button onClick={()=>toggle(u)} style={{padding:"3px 7px",fontSize:11,borderRadius:5,background:u.active?"#FFFBEB":"#ECFDF5",color:u.active?"#B45309":"#065F46",border:`1px solid ${u.active?"#FCD34D":"#A7F3D0"}`,cursor:"pointer"}}>{u.active?"ระงับ":"เปิด"}</button>
               {u.id!==curUser.id&&<button onClick={()=>setDelConfirm(u)} style={{...BTN_X,color:"#DC2626",padding:"3px 6px",border:"1px solid #FECACA",borderRadius:5,background:"#FFF1F1"}}>ลบ</button>}
             </div>
-          </div>
+            </td>
+          </tr>
           );
         })}
+          </tbody>
+        </table>
       </div>
       {editing&&<div style={{position:"fixed",inset:0,zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.5)"}}>
         <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:24,width:420,boxShadow:"0 20px 60px rgba(0,0,0,.2)"}}>
@@ -3105,7 +3193,7 @@ const DEFAULT_NOTIFY = {
   line:      { enabled:true, channelAccessToken:"", groupId:"" },
 };
 
-function SettingsView({ notifyConfig, emailTemplatesStored, showToast, onOpenPdfTemplate }) {
+function SettingsView({ notifyConfig, emailTemplatesStored, showToast, onOpenPdfTemplate, onBackfillShareTokens, backfillPendingCount }) {
   const safe = ch => ({ ...(DEFAULT_NOTIFY[ch]||{}), ...((notifyConfig||{})[ch]||{}) });
   const [email,     setEmail]     = useState(()=>safe("email"));
   const [teams,     setTeams]     = useState(()=>safe("teams"));
@@ -3113,6 +3201,7 @@ function SettingsView({ notifyConfig, emailTemplatesStored, showToast, onOpenPdf
   const [line,      setLine]      = useState(()=>safe("line"));
   const [emailTplTab, setEmailTplTab] = useState("forgotPassword");
   const [emailTemplates, setEmailTemplates] = useState(() => mergeEmailTemplates(emailTemplatesStored));
+  const [backfilling, setBackfilling] = useState(false);
 
   useEffect(() => {
     setEmailTemplates(mergeEmailTemplates(emailTemplatesStored));
@@ -3164,6 +3253,36 @@ function SettingsView({ notifyConfig, emailTemplatesStored, showToast, onOpenPdf
     <div style={{padding:24}}>
       <div style={{fontSize:18,fontWeight:600,color:"#111",marginBottom:4}}>ตั้งค่าระบบ</div>
       <div style={{fontSize:13,color:"#6B7280",marginBottom:20}}>ตั้งค่าการแจ้งเตือนและ Template เอกสาร</div>
+
+      {/* CC link backfill */}
+      <div style={{background:"#FFFBEB",border:"1px solid #FCD34D",borderRadius:10,padding:"12px 16px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:13,fontWeight:600,color:"#92400E"}}>🔗 ลิงก์ดูเอกสาร CC (ย้อนหลัง)</div>
+          <div style={{fontSize:11,color:"#6B7280",marginTop:2,lineHeight:1.6}}>
+            สร้างลิงก์ให้ Memo ที่อนุมัติครบแล้วก่อนหน้านี้ — ผู้รับ CC เปิดดูได้โดยไม่ต้อง login
+            {backfillPendingCount > 0 && (
+              <span style={{display:"block",marginTop:4,color:"#B45309",fontWeight:600}}>
+                รออัปเดต {backfillPendingCount} ฉบับ
+              </span>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={async () => {
+            if (backfilling) return;
+            setBackfilling(true);
+            try {
+              await onBackfillShareTokens?.(true);
+            } finally {
+              setBackfilling(false);
+            }
+          }}
+          disabled={backfilling || backfillPendingCount === 0}
+          style={{padding:"8px 16px",background:backfillPendingCount===0?"#E5E7EB":"#D4AF37",color:backfillPendingCount===0?"#9CA3AF":"#000",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:backfillPendingCount===0?"not-allowed":"pointer",flexShrink:0,fontFamily:"inherit"}}
+        >
+          {backfilling ? "กำลังอัปเดต..." : backfillPendingCount === 0 ? "✓ อัปเดตครบแล้ว" : "อัปเดตลิงก์ย้อนหลัง"}
+        </button>
+      </div>
 
       {/* PDF Template */}
       <div style={{background:"#EEEDFE",border:"1px solid #AFA9EC",borderRadius:10,padding:"12px 16px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -3667,6 +3786,7 @@ export default function EMemo() {
   const [showProfile,     setShowProfile]     = useState(false);
   const [showSigZones,    setShowSigZones]    = useState(false);
   const [showAiUpdate,    setShowAiUpdate]    = useState(false);
+  const shareBackfillRan = useRef(false);
 
   useEffect(()=>{ const u=onAuthStateChanged(auth,u=>setAuthUser(u||null)); return()=>u(); },[]);
   useEffect(() => {
@@ -3679,6 +3799,26 @@ export default function EMemo() {
     }
   }, [authUser, data]);
   useEffect(()=>{ if(!authUser)return; const u=onValue(ref(db,DATA_PATH),snap=>setData(snap.val()||{users:{},memos:{},notifyConfig:{}})); return()=>u(); },[authUser]);
+  useEffect(() => {
+    if (!data?.memos || !authUser || shareBackfillRan.current) return;
+    const cur = Object.values(data.users || {}).find(u => u.email === authUser.email);
+    if (!cur || !["superadmin", "admin"].includes(cur.role)) return;
+    if (countMemosNeedingShareToken(data.memos) === 0) return;
+
+    shareBackfillRan.current = true;
+    (async () => {
+      try {
+        const result = await runShareTokenBackfill(data.memos);
+        if (result.updated > 0) {
+          setToast({ msg: `อัปเดตลิงก์ CC ย้อนหลัง ${result.updated} ฉบับ`, type: "success" });
+          setTimeout(() => setToast(null), 3200);
+        }
+      } catch (err) {
+        console.warn("[share-token-backfill]", err.message || err);
+        shareBackfillRan.current = false;
+      }
+    })();
+  }, [data, authUser]);
 
   // ── History API (must be before early returns — Rules of Hooks) ──────────
   useEffect(() => {
@@ -3695,7 +3835,24 @@ export default function EMemo() {
 
   const showToast=(msg,type="success")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3200); };
 
+  const handleBackfillShareTokens = async (manual = false) => {
+    if (!data?.memos) return { updated: 0 };
+    const pending = countMemosNeedingShareToken(data.memos);
+    if (!pending) {
+      if (manual) showToast("ลิงก์ CC ย้อนหลังอัปเดตครบแล้ว");
+      return { updated: 0 };
+    }
+    const result = await runShareTokenBackfill(data.memos);
+    if (result.updated > 0) {
+      showToast(`อัปเดตลิงก์ CC ย้อนหลัง ${result.updated} ฉบับ`);
+    } else if (manual) {
+      showToast("ไม่มี Memo ที่ต้องอัปเดต");
+    }
+    return result;
+  };
+
   if (resetLinkActive) return <ResetPassword/>;
+  if (isPublicMemoLink()) return <PublicMemoView/>;
   if (authUser===undefined) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:BLACK,fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}><div style={{textAlign:"center"}}><div style={{width:40,height:40,background:GOLD,borderRadius:10,margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:BLACK,fontWeight:700}}>E</div><div style={{color:"#666",fontSize:13}}>กำลังโหลด...</div></div></div>;
   if (!authUser) return <Login/>;
   if (!data) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F9FAFB",fontSize:13,color:"#6B7280",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>กำลังโหลดข้อมูล...</div>;
@@ -3722,6 +3879,7 @@ export default function EMemo() {
     return (lv?.approvers||[]).some(ap=>(ap.userId&&ap.userId===curUser.id)||(ap.email&&ap.email===curUser.email)&&ap.status==="pending");
   });
   const myMemos = memoList.filter(m=>m.createdBy===curUser.id);
+  const ccMemos = memoList.filter(m => isMemoCcRecipient(m, curUser.email));
 
   // ── Dept-based visibility ──────────────────────────────────────────────────
   // superadmin: เห็นทุก Memo / admin: แผนกตัวเอง + assigned / user: ของตัวเอง + assigned
@@ -3738,6 +3896,8 @@ export default function EMemo() {
       const isApprover = (m.workflowLevels||[]).flatMap(lv=>lv.approvers||[])
         .some(ap=>(ap.userId&&ap.userId===curUser.id)||(ap.email&&ap.email===curUser.email));
       if (isApprover) return true;
+      // CC ถึงอีเมลของ user → ดูได้เมื่ออนุมัติครบแล้ว
+      if (isMemoCcRecipient(m, curUser.email)) return true;
       // scope="dept" → เห็น Memo ทั้งแผนก
       if (scope === "dept" && curUser.dept) {
         const creator = users.find(u=>u.id===m.createdBy);
@@ -3836,6 +3996,7 @@ export default function EMemo() {
     const patch     = { workflowLevels:levels, currentLevel:newLvIdx, status:newStatus,
       history:[...(memo.history||[]), histEntry] };
     if(allDone&&!memo.docNo){ const docNo=await assignDocNo(memo,users,docCounters); patch.docNo=docNo; }
+    if(allDone && !memo.shareToken) patch.shareToken = generateShareToken();
     await patchMemo(memo.id,patch);
     setModal(null); setSelId(memo.id);
     showToast(allDone?"✅ อนุมัติครบทุกลำดับ กำลังส่งแจ้งเตือน...":lvDone?"อนุมัติลำดับนี้แล้ว ส่งต่อลำดับถัดไป":"อนุมัติแล้ว รอผู้อนุมัติคนอื่นในลำดับเดียวกัน");
@@ -3954,6 +4115,7 @@ export default function EMemo() {
     {k:"dashboard",l:"ภาพรวม",       i:"⊞",roles:["superadmin","admin","user"]},
     {k:"inbox",    l:"กล่องขาเข้า",  i:"↓",badge:inbox.length||null,roles:["superadmin","admin","user"]},
     {k:"myMemos",  l:"Memo ของฉัน",  i:"◉",roles:["superadmin","admin","user"]},
+    {k:"ccMemos",  l:"CC ถึงฉัน",    i:"✉",badge:ccMemos.length||null,roles:["superadmin","admin","user"]},
     {k:"all",      l:"ทั้งหมด",      i:"≡",roles:["superadmin","admin"]},
     {k:"search",   l:"ค้นหา",        i:"⌕",roles:["superadmin","admin","user"]},
     {k:"routes",   l:"Route อนุมัติ",i:"🔀",roles:["superadmin","admin","user"]},
@@ -3964,6 +4126,7 @@ export default function EMemo() {
     {k:"dashboard",l:"ภาพรวม", i:"⊞",roles:["superadmin","admin","user"]},
     {k:"inbox",    l:"ขาเข้า", i:"↓",badge:inbox.length||null,roles:["superadmin","admin","user"]},
     {k:"myMemos",  l:"ของฉัน", i:"◉",roles:["superadmin","admin","user"]},
+    {k:"ccMemos",  l:"CC",     i:"✉",badge:ccMemos.length||null,roles:["superadmin","admin","user"]},
     {k:"search",   l:"ค้นหา",  i:"⌕",roles:["superadmin","admin","user"]},
     {k:"settings", l:"ตั้งค่า",i:"⚙",roles:["superadmin"]},
   ];
@@ -4076,13 +4239,14 @@ export default function EMemo() {
         {view==="dashboard"&&<Dashboard memoList={visibleMemos} users={users} curUser={curUser} inboxCount={inbox.length} onOpen={openMemo}/>}
         {view==="inbox"    &&<MemoListView memoList={inbox}   users={users} title="กล่องขาเข้า" subtitle={`${inbox.length} รายการรอการอนุมัติ`} curUser={curUser} onOpen={openMemo} highlight/>}
         {view==="myMemos"  &&<MemoListView memoList={myMemos} users={users} title="Memo ของฉัน" curUser={curUser} onOpen={openMemo} onRecall={recallMemo} onEdit={startEdit}/>}
+        {view==="ccMemos"  &&<MemoListView memoList={ccMemos} users={users} title="CC ถึงฉัน" subtitle={`${ccMemos.length} เอกสารที่คุณได้รับ CC หลังอนุมัติครบ`} curUser={curUser} onOpen={openMemo}/>}
         {view==="all"      &&can(curUser.role,"viewAll")&&<MemoListView memoList={visibleMemos} users={users} title="Memo ทั้งหมด" curUser={curUser} onOpen={openMemo}/>}
         {view==="search"   &&<SearchView memoList={visibleMemos} users={users} curUser={curUser} onOpen={openMemo}/>}
         {view==="routes"   &&<RouteListView routeTemplates={routeTemplates} curUser={curUser} onManage={()=>setShowRouteManager(true)}/>}
         {view==="users"    &&can(curUser.role,"manageUsers")&&<UsersMgmt users={users} curUser={curUser} showToast={showToast} emailTemplates={emailTemplates}/>}
         {view==="settings" &&(
           can(curUser.role,"settings")
-            ? <ErrorBoundary><SettingsView notifyConfig={notifyConfig} emailTemplatesStored={data.emailTemplates} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)}/></ErrorBoundary>
+            ? <ErrorBoundary><SettingsView notifyConfig={notifyConfig} emailTemplatesStored={data.emailTemplates} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)} onBackfillShareTokens={handleBackfillShareTokens} backfillPendingCount={countMemosNeedingShareToken(data.memos)}/></ErrorBoundary>
             : <div style={{padding:32,textAlign:"center",color:"#9CA3AF",fontSize:13}}><div style={{fontSize:24,marginBottom:8}}>🔒</div><div>สิทธิ์ไม่เพียงพอ</div></div>
         )}
         {view==="create"&&editMemo&&<CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} routeTemplates={routeTemplates} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"} onOpenSigZones={()=>setShowSigZones(true)} syncing={syncing}/>}

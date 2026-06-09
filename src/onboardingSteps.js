@@ -60,6 +60,13 @@ export function getOnboardingSteps(role) {
       body: "บันทึก workflow อนุมัติที่ใช้บ่อย แล้วโหลดเข้า Memo ใหม่ได้ในคลิกเดียว ประหยัดเวลาตอนสร้าง Memo",
     },
     {
+      id: "ccMemos",
+      target: "nav-ccMemos",
+      view: "ccMemos",
+      title: "CC ถึงฉัน",
+      body: "Memo ที่คุณได้รับ CC หลังอนุมัติครบจะอยู่ที่นี่ — เปิดอ่านได้จากระบบโดยตรง",
+    },
+    {
       id: "profile",
       target: "profile",
       title: "โปรไฟล์และลายเซ็น",
