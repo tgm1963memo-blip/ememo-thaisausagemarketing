@@ -9,7 +9,9 @@ import {
   isValidAckRecipient,
   canAcknowledgeMemo,
   getMemoApproverSearchText,
+  getMemoCreatorSearchText,
   collectUniqueApprovers,
+  collectUniqueCreators,
 } from "../src/memoHelpers.js";
 
 const users = [
@@ -81,4 +83,14 @@ const approvers = collectUniqueApprovers([memo], users);
 assert.equal(approvers.length, 1);
 assert.equal(approvers[0].name, "ผู้อนุมัติ");
 
-console.log("✓ memoHelpers tests passed (12 assertions)");
+// getMemoCreatorSearchText
+const creatorText = getMemoCreatorSearchText(memo, users);
+assert.ok(creatorText.includes("สมชาย"));
+assert.ok(creatorText.includes("somchai@tgm.co.th"));
+
+// collectUniqueCreators
+const creators = collectUniqueCreators([memo], users);
+assert.equal(creators.length, 1);
+assert.equal(creators[0].name, "สมชาย");
+
+console.log("✓ memoHelpers tests passed");

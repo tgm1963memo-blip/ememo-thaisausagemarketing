@@ -87,10 +87,10 @@ function MockSearch() {
   return (
     <MockFrame title="ค้นหา Memo">
       <div style={{ background: "#fff", borderRadius: 8, padding: 10, border: "1px solid #E5E7EB" }}>
-        <div style={{ height: 26, background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 4, marginBottom: 6, fontSize: 9, padding: "0 8px", display: "flex", alignItems: "center", color: "#374151" }}>🔍 ค้นหาชื่อเรื่อง, เนื้อหา, ผู้อนุมัติ...</div>
+        <div style={{ height: 26, background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 4, marginBottom: 6, fontSize: 9, padding: "0 8px", display: "flex", alignItems: "center", color: "#374151" }}>🔍 ค้นหาชื่อเรื่อง, ผู้ส่ง, ผู้อนุมัติ...</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          <div style={{ height: 22, background: "#F3F4F6", borderRadius: 4, fontSize: 8, display: "flex", alignItems: "center", padding: "0 6px", color: "#6B7280" }}>ผู้ส่ง: ทั้งหมด</div>
           <div style={{ height: 22, background: "#F3F4F6", borderRadius: 4, fontSize: 8, display: "flex", alignItems: "center", padding: "0 6px", color: "#6B7280" }}>ผู้อนุมัติ: ทั้งหมด</div>
-          <div style={{ height: 22, background: "#F3F4F6", borderRadius: 4, fontSize: 8, display: "flex", alignItems: "center", padding: "0 6px", color: "#6B7280" }}>สถานะ: อนุมัติแล้ว</div>
         </div>
       </div>
     </MockFrame>
@@ -177,10 +177,10 @@ export const GUIDE_SECTIONS = [
   {
     id: "search",
     title: "ค้นหา Memo",
-    body: "ใช้เมนู 'ค้นหา' เพื่อหา Memo ตามคำค้น หัวข้อ เนื้อหา หรือชื่อผู้อนุมัติ สามารถกรองตามสถานะ หมวดหมู่ วันที่ และเลือกผู้อนุมัติจากรายการได้",
+    body: "ใช้เมนู 'ค้นหา' เพื่อหา Memo ตามคำค้น หัวข้อ เนื้อหา ชื่อผู้ส่ง หรือชื่อผู้อนุมัติ สามารถกรองตามสถานะ หมวดหมู่ วันที่ และเลือกผู้ส่ง/ผู้อนุมัติจากรายการได้",
     bullets: [
-      "พิมพ์ชื่อผู้อนุมัติในช่องค้นหาได้เลย",
-      "ใช้ dropdown 'ผู้อนุมัติ' เพื่อกรองเฉพาะ Memo ที่คนนั้นเกี่ยวข้อง",
+      "พิมพ์ชื่อผู้ส่ง (ผู้สร้าง Memo) หรือผู้อนุมัติในช่องค้นหาได้เลย",
+      "ใช้ dropdown 'ผู้ส่ง' หรือ 'ผู้อนุมัติ' เพื่อกรองเฉพาะ Memo ที่เกี่ยวข้อง",
       "Admin ค้นหาได้ทั้ง Memo ในองค์กร",
     ],
     mock: "search",

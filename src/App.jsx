@@ -16,7 +16,9 @@ import {
   buildMemoShareLink,
   getAckSummary,
   getMemoApproverSearchText,
+  getMemoCreatorSearchText,
   collectUniqueApprovers,
+  collectUniqueCreators,
   isValidAckRecipient,
   isRecipientAcknowledged,
   emailToKey,
@@ -1764,32 +1766,35 @@ function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRec
 }
 
 function SearchView({ memoList, users, curUser, onOpen }) {
-  const [q,setQ]=useState(""); const [fS,setFS]=useState(""); const [fC,setFC]=useState(""); const [fF,setFF]=useState(""); const [fT,setFT]=useState(""); const [fA,setFA]=useState("");
+  const [q,setQ]=useState(""); const [fS,setFS]=useState(""); const [fC,setFC]=useState(""); const [fF,setFF]=useState(""); const [fT,setFT]=useState(""); const [fA,setFA]=useState(""); const [fCr,setFCr]=useState("");
   const approvers = collectUniqueApprovers(memoList, users);
+  const creators = collectUniqueCreators(memoList, users);
   const res=memoList.filter(m=>{
     if(q.trim()){
       const ql=q.toLowerCase();
-      if(!m.title?.toLowerCase().includes(ql)&&!m.content?.toLowerCase().includes(ql)&&!getMemoApproverSearchText(m,users).includes(ql))return false;
+      if(!m.title?.toLowerCase().includes(ql)&&!m.content?.toLowerCase().includes(ql)&&!getMemoApproverSearchText(m,users).includes(ql)&&!getMemoCreatorSearchText(m,users).includes(ql))return false;
     }
     if(fS&&m.status!==fS)return false; if(fC&&m.category!==fC)return false;
     if(fF&&m.createdAt<fF)return false; if(fT&&m.createdAt>fT+"T23:59:59")return false;
+    if(fCr&&m.createdBy!==fCr)return false;
     if(fA){
       const hit=(m.workflowLevels||[]).some(lv=>(lv.approvers||[]).some(ap=>ap.userId===fA||normalizeEmail(ap.email)===normalizeEmail(approvers.find(a=>a.id===fA)?.email)));
       if(!hit)return false;
     }
     return true;
   }).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
-  const has=q||fS||fC||fF||fT||fA;
+  const has=q||fS||fC||fF||fT||fA||fCr;
   return (
     <div style={{padding:24}}>
       <div style={{fontSize:18,fontWeight:600,color:"#111",marginBottom:14}}>ค้นหา Memo</div>
-      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="ค้นหาชื่อเรื่อง, เนื้อหา, ผู้อนุมัติ..." style={{...IS,marginBottom:10}}/>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:8,marginBottom:14}}>
+      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="ค้นหาชื่อเรื่อง, เนื้อหา, ผู้ส่ง, ผู้อนุมัติ..." style={{...IS,marginBottom:10}}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:14}}>
         <select value={fS} onChange={e=>setFS(e.target.value)} style={{...IS,width:"auto"}}><option value="">สถานะทั้งหมด</option>{Object.entries(STATUS_LABEL).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select>
         <select value={fC} onChange={e=>setFC(e.target.value)} style={{...IS,width:"auto"}}><option value="">หมวดหมู่ทั้งหมด</option>{BASE_CATEGORIES.map(c=><option key={c}>{c}</option>)}</select>
+        <select value={fCr} onChange={e=>setFCr(e.target.value)} style={{...IS,width:"auto"}}><option value="">ผู้ส่งทั้งหมด</option>{creators.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <select value={fA} onChange={e=>setFA(e.target.value)} style={{...IS,width:"auto"}}><option value="">ผู้อนุมัติทั้งหมด</option>{approvers.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select>
-        <input type="date" value={fF} onChange={e=>setFF(e.target.value)} style={{...IS,width:"auto"}}/>
-        <input type="date" value={fT} onChange={e=>setFT(e.target.value)} style={{...IS,width:"auto"}}/>
+        <input type="date" value={fF} onChange={e=>setFF(e.target.value)} style={{...IS,width:"auto"}} title="ตั้งแต่วันที่"/>
+        <input type="date" value={fT} onChange={e=>setFT(e.target.value)} style={{...IS,width:"auto"}} title="ถึงวันที่"/>
       </div>
       {has?<><div style={{fontSize:12,color:"#9CA3AF",marginBottom:8}}>พบ {res.length} รายการ</div>{res.map(m=><MemoRow key={m.id} memo={m} users={users} onClick={()=>onOpen(m.id)} curUser={curUser}/>)}{res.length===0&&<Empty msg="ไม่พบผลลัพธ์"/>}</>:<Empty msg="พิมพ์คำค้นหาหรือเลือกตัวกรอง"/>}
     </div>

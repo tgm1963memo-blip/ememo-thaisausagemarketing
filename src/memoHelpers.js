@@ -88,6 +88,22 @@ export function isValidAckRecipient(memo, users, email) {
   return buildApprovedEmailRecipients(memo, users).some(r => normalizeEmail(r.email) === key);
 }
 
+export function getMemoCreatorSearchText(memo, users = []) {
+  const u = users.find(x => x.id === memo.createdBy) || {};
+  return [u.name, u.nickname, u.email, u.loginId, u.dept].filter(Boolean).join(" ").toLowerCase();
+}
+
+export function collectUniqueCreators(memoList, users) {
+  const map = new Map();
+  for (const memo of memoList || []) {
+    const id = memo.createdBy;
+    if (!id || map.has(id)) continue;
+    const u = users.find(x => x.id === id) || {};
+    map.set(id, { id, name: u.name || id, email: normalizeEmail(u.email) });
+  }
+  return [...map.values()].sort((a, b) => (a.name || "").localeCompare(b.name || "", "th"));
+}
+
 export function getMemoApproverSearchText(memo, users = []) {
   const parts = [];
   for (const lv of memo.workflowLevels || []) {
