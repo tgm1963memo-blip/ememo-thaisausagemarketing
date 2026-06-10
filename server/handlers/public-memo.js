@@ -1,6 +1,6 @@
 import admin from "firebase-admin";
-import { initFirebaseAdmin } from "./firebase-admin.js";
-import { COMPANY, DATA_PATH } from "./email-templates.js";
+import { initFirebaseAdmin } from "../lib/firebase-admin.js";
+import { COMPANY, DATA_PATH } from "../lib/email-templates.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");

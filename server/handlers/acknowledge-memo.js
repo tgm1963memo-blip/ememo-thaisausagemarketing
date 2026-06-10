@@ -1,7 +1,7 @@
 import admin from "firebase-admin";
-import { initFirebaseAdmin } from "./firebase-admin.js";
-import { DATA_PATH } from "./email-templates.js";
-import { normalizeEmail, emailToKey, buildApprovedEmailRecipients } from "./memo-api-helpers.js";
+import { initFirebaseAdmin } from "../lib/firebase-admin.js";
+import { DATA_PATH } from "../lib/email-templates.js";
+import { normalizeEmail, emailToKey, buildApprovedEmailRecipients } from "../lib/memo-api-helpers.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");

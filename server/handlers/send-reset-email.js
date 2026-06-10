@@ -1,13 +1,13 @@
 import nodemailer from "nodemailer";
 import admin from "firebase-admin";
-import { initFirebaseAdmin, fetchEmailTemplates } from "./firebase-admin.js";
+import { initFirebaseAdmin, fetchEmailTemplates } from "../lib/firebase-admin.js";
 import {
   buildEmailVars,
   getTemplateForType,
   renderTemplate,
   resolveTemplateType,
-} from "./email-templates.js";
-import { getAppUrl } from "./app-url.js";
+} from "../lib/email-templates.js";
+import { getAppUrl } from "../lib/app-url.js";
 
 async function createResetLink(email, appUrl) {
   initFirebaseAdmin();

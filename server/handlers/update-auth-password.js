@@ -1,5 +1,5 @@
 import admin from "firebase-admin";
-import { initFirebaseAdmin } from "./firebase-admin.js";
+import { initFirebaseAdmin } from "../lib/firebase-admin.js";
 
 function mapError(err) {
   const code = err?.code || err?.message || "";

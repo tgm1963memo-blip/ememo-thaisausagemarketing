@@ -4,8 +4,8 @@ import {
   renderTemplate,
   getTemplateForType,
   resolveTemplateType,
-} from "../api/email-templates.js";
-import { getAppUrl, isPreviewDeploymentHost, PRODUCTION_APP_URL, resolveAppUrl } from "../api/app-url.js";
+} from "../server/lib/email-templates.js";
+import { getAppUrl, isPreviewDeploymentHost, PRODUCTION_APP_URL, resolveAppUrl } from "../server/lib/app-url.js";
 
 const previewUrl = "https://ememo-thaisausagemarketing-tgm1963memo-blips-projects.vercel.app";
 console.assert(resolveAppUrl(previewUrl) === PRODUCTION_APP_URL, "preview URL must resolve to production");

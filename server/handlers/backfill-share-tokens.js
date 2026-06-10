@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import admin from "firebase-admin";
-import { initFirebaseAdmin } from "./firebase-admin.js";
-import { DATA_PATH } from "./email-templates.js";
+import { initFirebaseAdmin } from "../lib/firebase-admin.js";
+import { DATA_PATH } from "../lib/email-templates.js";
 
 function generateShareToken() {
   return crypto.randomBytes(24).toString("hex");
