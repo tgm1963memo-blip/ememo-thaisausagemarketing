@@ -350,7 +350,7 @@ function countMemosNeedingShareToken(memosObj) {
 
 function displayUserName(u) {
   if (!u) return "-";
-  const { name, nickname } = parseNameAndNickname(String(u.name || "").replace(/^undefined/i, ""), u.nickname);
+  const { name, nickname } = parseNameAndNickname(String(u.name || "").replace(/\bundefined\b/gi, "").trim(), u.nickname);
   return nickname ? `${name} (${nickname})` : (name || "-");
 }
 
@@ -567,7 +567,17 @@ async function sendApprovedNotifications(cfg, memo, users) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtDate  = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"short",year:"numeric"})+" "+new Date(s).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
 const fmtShort = s => !s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"short",year:"2-digit"});
-const getInit  = (name="") => { const p=name.trim().split(" "); return p.length>=2?p[0][0]+p[1][0]:name.slice(0,2); };
+const getInit = (name = "", fallback = "") => {
+  const clean = String(name).replace(/\bundefined\b/gi, "").trim();
+  const parts = clean.split(/\s+/).filter(p => p && p.toLowerCase() !== "undefined");
+  if (parts.length >= 2) return ((parts[0][0] || "") + (parts[1][0] || "")).toUpperCase();
+  if (parts.length === 1 && parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase();
+  if (parts.length === 1 && parts[0].length === 1) return parts[0].toUpperCase();
+  const fb = String(fallback).replace(/\bundefined\b/gi, "").trim();
+  if (fb.length >= 2) return fb.slice(0, 2).toUpperCase();
+  if (fb.length === 1) return fb.toUpperCase();
+  return "?";
+};
 const newId    = (pfx="") => pfx+Date.now()+Math.random().toString(36).slice(2,5);
 
 // Built-in PDF using browser print — no .docx needed
@@ -746,9 +756,12 @@ const FLEX_INPUT = { flex:1, minWidth:0, width:0, padding:"5px 8px", border:"1px
 
 // ── UI Components ─────────────────────────────────────────────────────────────
 function Avatar({ userId, users, size=28 }) {
-  const u=users.find(x=>x.id===userId)||{}; const idx=users.findIndex(x=>x.id===userId);
+  const u=users.find(x=>x.id===userId)||{};
+  const idx=users.findIndex(x=>x.id===userId);
   const c=PALETTES[(idx<0?0:idx)%PALETTES.length];
-  return <div style={{width:size,height:size,borderRadius:"50%",background:c.bg,color:c.text,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.36,fontWeight:600,flexShrink:0}}>{getInit(u.name||"?")}</div>;
+  const { name, nickname } = parseNameAndNickname(String(u.name||"").replace(/\bundefined\b/gi,"").trim(), u.nickname);
+  const initials = getInit(name, nickname || loginIdFromUser(u) || u.email || "?");
+  return <div style={{width:size,height:size,borderRadius:"50%",background:c.bg,color:c.text,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.36,fontWeight:600,flexShrink:0}}>{initials}</div>;
 }
 function RoleBadge({role}){const c=ROLE_CONFIG[role]||ROLE_CONFIG.user;return <span style={{background:c.bg,color:c.text,border:`1px solid ${c.border}`,borderRadius:4,padding:"2px 7px",fontSize:11,fontWeight:500,whiteSpace:"nowrap"}}>{c.label}</span>;}
 function StatusBadge({status}){const c=STATUS_COLOR[status]||STATUS_COLOR.draft;return <span style={{background:c.bg,color:c.text,border:`1px solid ${c.border}`,borderRadius:4,padding:"2px 7px",fontSize:11,fontWeight:500,whiteSpace:"nowrap"}}>{STATUS_LABEL[status]||status}</span>;}
@@ -1630,6 +1643,34 @@ async function exportMemosToExcel(memoList, users) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Memos");
   XLSX.writeFile(wb, `memo_export_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+async function exportUsersToExcel(userList) {
+  const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+  const rows = userList.map(u => {
+    const { name, nickname } = parseNameAndNickname(String(u.name || "").replace(/\bundefined\b/gi, "").trim(), u.nickname);
+    const scope = u.viewScope || "dept";
+    const scopeLabel = scope === "all" || u.role === "superadmin" || u.role === "admin"
+      ? "ทั้งหมด"
+      : scope === "own"
+        ? "ตัวเอง"
+        : (u.dept || "แผนก");
+    return {
+      "ชื่อ-สกุล": name || "-",
+      "ชื่อเล่น": nickname || "-",
+      "Username": loginIdFromUser(u),
+      "Email": u.email || "-",
+      "แผนก": u.dept || "-",
+      "สิทธิ์": (ROLE_CONFIG[u.role] || ROLE_CONFIG.user).label,
+      "การมองเห็น": scopeLabel,
+      "สถานะ": u.active ? "ใช้งาน" : "ระงับ",
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = [24, 12, 16, 28, 16, 14, 14, 10].map(w => ({ wch: w }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Users");
+  XLSX.writeFile(wb, `users_export_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRecall, onEdit, highlight, trashMode, onRestore }) {
@@ -2876,6 +2917,9 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
   const [importSendNew,setImportSendNew]=useState(true); const [importSendUpdated,setImportSendUpdated]=useState(false);
   const [importing,setImporting]=useState(false); const [importStatus,setImportStatus]=useState("");
   const [deptFilter,setDeptFilter]=useState("");
+  const [sortKey,setSortKey]=useState("name");
+  const [sortDir,setSortDir]=useState("asc");
+  const [exporting,setExporting]=useState(false);
   const xlsxRef=useRef(); const blank={name:"",nickname:"",loginId:"",password:"",email:"",dept:"",role:"user",active:true,sendNotifyEmail:false};
   const handleXlsxImport=async(e)=>{const file=e.target.files[0];if(!file)return;e.target.value="";try{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:""});const parsed=rows.map(r=>{const name=String(r["ชื่อ-สกุล"]||r["name"]||"").trim();const loginId=normalizeLoginId(r["username"]||r["Username"]||r["loginId"]||String(name).replace(/\s+/g,"."));const rawEmail=String(r["email"]||r["Email"]||"").trim().toLowerCase();return{name,nickname:String(r["ชื่อเล่น"]||r["nickname"]||"").trim(),loginId,email:rawEmail||makeLoginEmail(loginId),password:String(r["รหัสผ่าน"]||r["password"]||"").trim(),dept:String(r["แผนก"]||r["dept"]||"").trim(),role:["superadmin","admin","user"].includes(String(r["สิทธิ์"]||r["role"]||"").toLowerCase())?String(r["สิทธิ์"]||r["role"]||"user").toLowerCase():"user",active:true};}).filter(r=>r.name&&r.loginId&&r.password.length>=6);if(!parsed.length){showToast("ไม่พบข้อมูลที่ถูกต้อง","error");return;}setImportSendNew(true);setImportSendUpdated(false);setImportPreview(parsed);}catch(err){showToast("อ่านไฟล์ไม่ได้: "+err.message,"error");}};
   const confirmImport=async()=>{
@@ -3040,6 +3084,67 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
   const filteredUsers = deptFilter
     ? users.filter(u => userDeptKey(u) === deptFilter)
     : users;
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("asc"); }
+  };
+
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    let av, bv;
+    if (sortKey === "name") {
+      av = displayUserName(a).toLowerCase();
+      bv = displayUserName(b).toLowerCase();
+    } else if (sortKey === "loginId") {
+      av = loginIdFromUser(a).toLowerCase();
+      bv = loginIdFromUser(b).toLowerCase();
+    } else if (sortKey === "dept") {
+      av = (a.dept || "").toLowerCase();
+      bv = (b.dept || "").toLowerCase();
+    } else if (sortKey === "role") {
+      av = a.role || "";
+      bv = b.role || "";
+    } else if (sortKey === "viewScope") {
+      av = a.viewScope || "dept";
+      bv = b.viewScope || "dept";
+    } else if (sortKey === "active") {
+      av = a.active ? 1 : 0;
+      bv = b.active ? 1 : 0;
+    } else {
+      av = ""; bv = "";
+    }
+    if (av < bv) return sortDir === "asc" ? -1 : 1;
+    if (av > bv) return sortDir === "asc" ? 1 : -1;
+    return 0;
+  });
+
+  const UserSortHeader = ({ label, col }) => {
+    const active = sortKey === col;
+    return (
+      <th
+        onClick={() => toggleSort(col)}
+        style={{ padding: "8px 12px", fontSize: 11, fontWeight: 600, color: active ? "#111" : "#9CA3AF", textAlign: "left", verticalAlign: "middle", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}
+      >
+        {label}
+        <span style={{ fontSize: 10, color: active ? GOLD : "#D1D5DB", marginLeft: 4 }}>
+          {active ? (sortDir === "asc" ? "▲" : "▼") : "⇅"}
+        </span>
+      </th>
+    );
+  };
+
+  const handleExportUsers = async () => {
+    setExporting(true);
+    try {
+      await exportUsersToExcel(sortedUsers);
+      showToast(`Export ${sortedUsers.length} รายชื่อแล้ว`);
+    } catch (e) {
+      showToast("Export ไม่สำเร็จ: " + e.message, "error");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div style={{padding:24}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
@@ -3048,6 +3153,7 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
           <input ref={xlsxRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleXlsxImport}/>
           <button onClick={async()=>{const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");const ws=XLSX.utils.aoa_to_sheet([["ชื่อ-สกุล","ชื่อเล่น","username","email","รหัสผ่าน","แผนก","สิทธิ์"],["สมชาย ใจดี","ชาย","somchai","somchai@tgm.co.th","123456","IT","user"]]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Users");XLSX.writeFile(wb,"user_template.xlsx");}} style={{...BTN_GRAY,padding:"6px 12px",fontSize:12}}>⬇ Template</button>
           <button onClick={()=>xlsxRef.current?.click()} style={{padding:"7px 14px",background:"#ECFDF5",color:"#065F46",border:"1px solid #A7F3D0",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>📥 Import Excel</button>
+          <button onClick={handleExportUsers} disabled={exporting||!sortedUsers.length} style={{padding:"7px 14px",background:exporting?"#9CA3AF":"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:12,fontWeight:600,cursor:exporting||!sortedUsers.length?"not-allowed":"pointer"}}>{exporting?"กำลัง Export...":"📊 Export Excel"}</button>
           <button onClick={()=>setEditing(blank)} style={BTN_GOLD}>+ เพิ่ม User</button>
         </div>
       </div>
@@ -3085,15 +3191,19 @@ function UsersMgmt({ users, curUser, showToast, emailTemplates }) {
           </colgroup>
           <thead>
             <tr style={{background:"#F9FAFB",borderBottom:"1px solid #F3F4F6"}}>
-              {["ชื่อ","Username","แผนก","สิทธิ์","การมองเห็น","สถานะ","จัดการ"].map(h=>(
-                <th key={h} style={{padding:"8px 12px",fontSize:11,fontWeight:600,color:"#9CA3AF",textAlign:"left",verticalAlign:"middle"}}>{h}</th>
-              ))}
+              <UserSortHeader label="ชื่อ" col="name" />
+              <UserSortHeader label="Username" col="loginId" />
+              <UserSortHeader label="แผนก" col="dept" />
+              <UserSortHeader label="สิทธิ์" col="role" />
+              <UserSortHeader label="การมองเห็น" col="viewScope" />
+              <UserSortHeader label="สถานะ" col="active" />
+              <th style={{padding:"8px 12px",fontSize:11,fontWeight:600,color:"#9CA3AF",textAlign:"left",verticalAlign:"middle"}}>จัดการ</th>
             </tr>
           </thead>
           <tbody>
-        {filteredUsers.length === 0 ? (
+        {sortedUsers.length === 0 ? (
           <tr><td colSpan={7} style={{padding:"32px 16px",textAlign:"center",color:"#9CA3AF",fontSize:13}}>ไม่พบ User ในแผนกนี้</td></tr>
-        ) : filteredUsers.map(u=>{
+        ) : sortedUsers.map(u=>{
           const scope = u.viewScope||"dept";
           const scopeInfo = scope==="all"||u.role==="superadmin"||u.role==="admin"
             ? {l:"👁 ทั้งหมด",     c:"#1E40AF", bg:"#EFF6FF"}
@@ -4178,7 +4288,7 @@ export default function EMemo() {
     setShowSigZones(false);
   };
 
-  const acknowledgeMemo = async (memo, { email, name, via = "system" }) => {
+  const acknowledgeMemo = async (memo, { email, name, via = "system", comment = "" }) => {
     const key = normalizeMemoEmail(email);
     if (!isValidAckRecipient(memo, users, key)) {
       showToast("ไม่สามารถรับทราบได้ — อีเมลไม่อยู่ในรายชื่อผู้รับแจ้งเตือน", "error");
@@ -4188,15 +4298,20 @@ export default function EMemo() {
       showToast("คุณรับทราบเอกสารนี้แล้ว");
       return;
     }
+    const trimmedComment = String(comment || "").trim().slice(0, 500);
     const acknowledgement = {
       email: key,
       name: name || curUser.name || key,
       at: new Date().toISOString(),
       via,
+      ...(trimmedComment ? { comment: trimmedComment } : {}),
     };
+    const histComment = trimmedComment
+      ? `${acknowledgement.name} รับทราบ: ${trimmedComment}`
+      : `${acknowledgement.name} รับทราบ`;
     await patchMemo(memo.id, {
       [`acknowledgements/${emailToKey(key)}`]: acknowledgement,
-      history: [...(memo.history || []), { action: "acknowledged", by: curUser.id, at: acknowledgement.at, comment: `${acknowledgement.name} รับทราบ` }],
+      history: [...(memo.history || []), { action: "acknowledged", by: curUser.id, at: acknowledgement.at, comment: histComment }],
     });
     showToast("บันทึกการรับทราบแล้ว");
   };

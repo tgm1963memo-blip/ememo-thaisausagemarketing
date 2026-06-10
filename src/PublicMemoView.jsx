@@ -36,6 +36,7 @@ export default function PublicMemoView() {
   const [acking, setAcking] = useState(false);
   const [ackDone, setAckDone] = useState(false);
   const [ackError, setAckError] = useState("");
+  const [ackComment, setAckComment] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -91,6 +92,7 @@ export default function PublicMemoView() {
           email: recipientEmail,
           name: r?.name || recipientEmail,
           via: "link",
+          comment: ackComment.trim(),
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -139,12 +141,30 @@ export default function PublicMemoView() {
             {isValidRecipient && (
               <div style={S.ackBox}>
                 {ackDone || alreadyAcked ? (
-                  <div style={S.ackSuccess}>✓ คุณรับทราบเอกสารนี้แล้ว — ผู้สร้างจะเห็นสถานะในระบบ</div>
+                  <div style={S.ackSuccess}>
+                    ✓ คุณรับทราบเอกสารนี้แล้ว — ผู้สร้างจะเห็นสถานะในระบบ
+                    {(alreadyAcked ? getMemoAcknowledgements(memo)[recipientEmail]?.comment : ackComment.trim()) && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: "#374151", fontWeight: 400, textAlign: "left" }}>
+                        💬 {alreadyAcked ? getMemoAcknowledgements(memo)[recipientEmail]?.comment : ackComment.trim()}
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <>
                     <div style={{ fontSize: 12, color: "#374151", marginBottom: 10, lineHeight: 1.6 }}>
                       กรุณากดปุ่มด้านล่างเพื่อยืนยันว่าคุณได้รับทราบเอกสารนี้แล้ว
                     </div>
+                    <textarea
+                      value={ackComment}
+                      onChange={e => setAckComment(e.target.value)}
+                      placeholder="ความคิดเห็น (ไม่บังคับ)..."
+                      rows={3}
+                      style={{
+                        width: "100%", boxSizing: "border-box", padding: "8px 10px", marginBottom: 10,
+                        border: "1px solid #FDE68A", borderRadius: 6, fontSize: 12, fontFamily: "inherit",
+                        resize: "vertical", background: "#fff",
+                      }}
+                    />
                     <button style={S.ackBtn} onClick={handleAck} disabled={acking}>
                       {acking ? "กำลังบันทึก..." : "✓ รับทราบเอกสารนี้"}
                     </button>

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   getAckSummary,
   getMemoAcknowledgements,
@@ -16,6 +17,9 @@ function fmtDate(iso) {
 }
 
 export default function AcknowledgementPanel({ memo, users, curUser, onAcknowledge, compact = false }) {
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
   if (memo?.status !== "approved") return null;
 
   const summary = getAckSummary(memo, users);
@@ -26,6 +30,22 @@ export default function AcknowledgementPanel({ memo, users, curUser, onAcknowled
   const canAck = curUser && onAcknowledge && canAcknowledgeMemo(memo, users, myEmail);
   const iAcked = curUser && isRecipientAcknowledged(memo, myEmail);
   const pct = summary.total ? Math.round((summary.ackCount / summary.total) * 100) : 0;
+
+  const handleSubmit = async () => {
+    if (!canAck || submitting) return;
+    setSubmitting(true);
+    try {
+      await onAcknowledge({
+        email: myEmail,
+        name: curUser.name,
+        via: "system",
+        comment: comment.trim(),
+      });
+      setComment("");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div style={{ fontSize: 12 }}>
@@ -66,25 +86,50 @@ export default function AcknowledgementPanel({ memo, users, curUser, onAcknowled
                 {fmtDate(ackData.at)}{ackData.via === "link" ? " · จากลิงก์อีเมล" : ackData.via === "system" ? " · จากระบบ" : ""}
               </div>
             )}
+            {ackData?.comment && (
+              <div style={{ fontSize: 11, color: "#374151", marginTop: 4, marginLeft: 22, padding: "6px 10px", background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 6, lineHeight: 1.5 }}>
+                💬 {ackData.comment}
+              </div>
+            )}
           </div>
         );
       })}
 
       {canAck && (
-        <button
-          onClick={() => onAcknowledge({ email: myEmail, name: curUser.name, via: "system" })}
-          style={{
-            marginTop: compact ? 6 : 10, width: "100%", padding: compact ? "8px" : "10px",
-            background: "#22C55E", color: "#fff", border: "none", borderRadius: 6,
-            fontSize: compact ? 11 : 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-          }}
-        >
-          ✓ รับทราบเอกสารนี้
-        </button>
+        <div style={{ marginTop: compact ? 6 : 10 }}>
+          <textarea
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            placeholder="ความคิดเห็น (ไม่บังคับ)..."
+            rows={compact ? 2 : 3}
+            style={{
+              width: "100%", boxSizing: "border-box", padding: "8px 10px", marginBottom: 8,
+              border: "1px solid #E5E7EB", borderRadius: 6, fontSize: 12, fontFamily: "inherit",
+              resize: "vertical", minHeight: 56,
+            }}
+          />
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            style={{
+              width: "100%", padding: compact ? "8px" : "10px",
+              background: "#22C55E", color: "#fff", border: "none", borderRadius: 6,
+              fontSize: compact ? 11 : 12, fontWeight: 700, cursor: submitting ? "not-allowed" : "pointer",
+              fontFamily: "inherit", opacity: submitting ? 0.7 : 1,
+            }}
+          >
+            {submitting ? "กำลังบันทึก..." : "✓ รับทราบเอกสารนี้"}
+          </button>
+        </div>
       )}
       {iAcked && !canAck && (
         <div style={{ marginTop: 8, fontSize: 11, color: "#065F46", background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 6, padding: "8px 10px", textAlign: "center" }}>
           ✓ คุณรับทราบเอกสารนี้แล้ว
+          {acks[myEmail]?.comment && (
+            <div style={{ marginTop: 6, textAlign: "left", color: "#374151", fontWeight: 400 }}>
+              💬 {acks[myEmail].comment}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -46,11 +46,13 @@ export default async function handler(req, res) {
     }
 
     const recipient = recipients.get(email);
+    const comment = String(body.comment || "").trim().slice(0, 500);
     const acknowledgement = {
       email,
       name: name || recipient?.name || email,
       at: new Date().toISOString(),
       via: body.via || "link",
+      ...(comment ? { comment } : {}),
     };
 
     await memoRef.child("acknowledgements").child(emailToKey(email)).set(acknowledgement);
