@@ -137,6 +137,31 @@ export function collectUniqueApprovers(memoList, users) {
   return [...map.values()].sort((a, b) => (a.name || "").localeCompare(b.name || "", "th"));
 }
 
+export function isMemoCcRecipient(memo, userEmail) {
+  if (memo?.status !== "approved") return false;
+  const email = normalizeEmail(userEmail);
+  if (!email) return false;
+  return (memo.notify?.emailList || []).some(e => normalizeEmail(e) === email);
+}
+
+export function canUserSeeMemo(memo, curUser, users = []) {
+  if (!memo || !curUser || memo.deletedAt) return false;
+  if (curUser.role === "superadmin") return true;
+  if (curUser.viewScope === "all" || curUser.role === "admin") return true;
+  if (memo.createdBy === curUser.id) return true;
+  const isApprover = (memo.workflowLevels || []).flatMap(lv => lv.approvers || [])
+    .some(ap => (ap.userId && ap.userId === curUser.id) || (normalizeEmail(ap.email) === normalizeEmail(curUser.email)));
+  if (isApprover) return true;
+  if (isMemoCcRecipient(memo, curUser.email)) return true;
+  const scope = curUser.viewScope || "dept";
+  if (scope === "dept" && curUser.dept) {
+    const creator = users.find(u => u.id === memo.createdBy);
+    const memoDept = memo.dept || creator?.dept;
+    if (memoDept && memoDept === curUser.dept) return true;
+  }
+  return false;
+}
+
 export function isMemoDeleted(memo) {
   return !!memo?.deletedAt;
 }

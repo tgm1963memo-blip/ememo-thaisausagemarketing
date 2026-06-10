@@ -13,6 +13,8 @@ import {
   collectUniqueApprovers,
   collectUniqueCreators,
   isMemoDeleted,
+  isMemoCcRecipient,
+  canUserSeeMemo,
   filterActiveMemos,
   filterTrashMemos,
 } from "../src/memoHelpers.js";
@@ -101,5 +103,19 @@ assert.equal(isMemoDeleted({ deletedAt: "2026-01-01" }), true);
 assert.equal(isMemoDeleted({}), false);
 assert.equal(filterActiveMemos([memo, { id: "x", deletedAt: "2026-01-01" }]).length, 1);
 assert.equal(filterTrashMemos([memo, { id: "x", deletedAt: "2026-01-01" }]).length, 1);
+
+// isMemoCcRecipient
+assert.equal(isMemoCcRecipient(memo, "cc@external.com"), true);
+assert.equal(isMemoCcRecipient(memo, "random@test.com"), false);
+assert.equal(isMemoCcRecipient({ ...memo, status: "pending" }, "cc@external.com"), false);
+
+// canUserSeeMemo
+const deptUser = { id: "u4", role: "user", email: "dept@tgm.co.th", dept: "Sales" };
+const deptMemo = { ...memo, dept: "Sales" };
+assert.equal(canUserSeeMemo(deptMemo, deptUser, users), true);
+assert.equal(canUserSeeMemo(deptMemo, { ...deptUser, dept: "HR" }, users), false);
+assert.equal(canUserSeeMemo(deptMemo, { id: "u3", role: "user", email: "approver@tgm.co.th" }, users), true);
+assert.equal(canUserSeeMemo(deptMemo, { id: "x", role: "user", email: "cc@external.com" }, users), true);
+assert.equal(canUserSeeMemo({ ...deptMemo, deletedAt: "2026-01-01" }, deptUser, users), false);
 
 console.log("✓ memoHelpers tests passed");
