@@ -21,6 +21,7 @@ import {
   collectUniqueCreators,
   isValidAckRecipient,
   isRecipientAcknowledged,
+  isMemoDeleted,
   emailToKey,
   normalizeEmail as normalizeMemoEmail,
 } from "./memoHelpers";
@@ -259,7 +260,7 @@ const PALETTES = [
 // ── Permissions ───────────────────────────────────────────────────────────────
 // [4] สิทธิ์การเข้าถึงแบบละเอียด
 const ROLE_PERMS = {
-  superadmin: ["manageUsers","settings","viewAll","create","approve","recall","editTemplate","viewReports","manageCategories"],
+  superadmin: ["manageUsers","settings","viewAll","create","approve","recall","editTemplate","viewReports","manageCategories","deleteMemo"],
   admin:      ["viewAll","create","approve","recall","viewReports"],
   user:       ["create","recall","viewOwn","approve"],  // user ต้องอนุมัติ Memo ที่ได้รับมอบหมายได้
 };
@@ -1631,13 +1632,13 @@ async function exportMemosToExcel(memoList, users) {
   XLSX.writeFile(wb, `memo_export_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
-function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRecall, onEdit, highlight }) {
+function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRecall, onEdit, highlight, trashMode, onRestore }) {
   const [fStatus,   setFStatus]   = useState("");
   const [fCategory, setFCategory] = useState("");
   const [fDateFrom, setFDateFrom] = useState("");
   const [fDateTo,   setFDateTo]   = useState("");
   const [exporting, setExporting] = useState(false);
-  const [sortKey,   setSortKey]   = useState("createdAt");
+  const [sortKey,   setSortKey]   = useState(trashMode ? "deletedAt" : "createdAt");
   const [sortDir,   setSortDir]   = useState("desc"); // "asc" | "desc"
 
   const toggleSort = (key) => {
@@ -1661,6 +1662,7 @@ function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRec
     else if (sortKey === "category") { av = a.category||""; bv = b.category||""; }
     else if (sortKey === "creator")  { av = (users.find(u=>u.id===a.createdBy)||{}).name||""; bv = (users.find(u=>u.id===b.createdBy)||{}).name||""; av=av.toLowerCase(); bv=bv.toLowerCase(); }
     else if (sortKey === "docNo")    { av = a.docNo||""; bv = b.docNo||""; }
+    else if (sortKey === "deletedAt") { av = a.deletedAt||""; bv = b.deletedAt||""; }
     else { av = ""; bv = ""; }
     if (av < bv) return sortDir==="asc" ? -1 : 1;
     if (av > bv) return sortDir==="asc" ? 1 : -1;
@@ -1718,31 +1720,33 @@ function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRec
             style={{padding:"6px 10px",border:"1px solid #E5E7EB",borderRadius:6,fontSize:11,background:"#F9FAFB",cursor:"pointer",color:"#6B7280"}}>
             ✕ ล้างตัวกรอง
           </button>}
-          <button onClick={handleExport} disabled={exporting}
-            style={{padding:"6px 12px",background:exporting?"#9CA3AF":"#16A34A",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:exporting?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:4}}>
+          <button onClick={handleExport} disabled={exporting||trashMode}
+            style={{padding:"6px 12px",background:exporting||trashMode?"#9CA3AF":"#16A34A",color:"#fff",border:"none",borderRadius:6,fontSize:12,fontWeight:600,cursor:exporting||trashMode?"not-allowed":"pointer",display:trashMode?"none":"flex",alignItems:"center",gap:4}}>
             {exporting?"กำลัง Export...":"📊 Export Excel"}
           </button>
         </div>
       </div>
 
-      {sorted.length===0 ? <Empty msg="ไม่พบ Memo"/> : (
+      {sorted.length===0 ? <Empty msg={trashMode?"ถังขยะว่าง":"ไม่พบ Memo"}/> : (
         <div style={{background:"#fff",border:"1px solid #F3F4F6",borderRadius:10,overflow:"hidden"}}>
           {/* Sortable header */}
-          <div style={{display:"grid",gridTemplateColumns:"140px 1fr 110px 100px 120px 90px",padding:"9px 14px",background:"#F9FAFB",borderBottom:"1px solid #F3F4F6"}}>
+          <div style={{display:"grid",gridTemplateColumns:trashMode?"140px 1fr 110px 100px 120px 110px 90px":"140px 1fr 110px 100px 120px 90px",padding:"9px 14px",background:"#F9FAFB",borderBottom:"1px solid #F3F4F6"}}>
             <SortHeader label="เลขที่เอกสาร" col="docNo"/>
             <SortHeader label="ชื่อเรื่อง"   col="title"/>
             <SortHeader label="หมวดหมู่"     col="category"/>
             <SortHeader label="สถานะ"        col="status"/>
             <SortHeader label="ผู้สร้าง"     col="creator"/>
-            <SortHeader label="วันที่"       col="createdAt"/>
+            <SortHeader label={trashMode?"ลบเมื่อ":"วันที่"} col={trashMode?"deletedAt":"createdAt"}/>
+            {trashMode&&<div style={{fontSize:11,fontWeight:600,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:.4}}>กู้คืน</div>}
           </div>
           {sorted.map(m=>{
             const creator=users.find(u=>u.id===m.createdBy)||{};
+            const deleter=users.find(u=>u.id===m.deletedBy)||{};
             const sc=STATUS_COLOR[m.status]||STATUS_COLOR.draft;
             const fmtS=s=>!s?"-":new Date(s).toLocaleDateString("th-TH",{day:"2-digit",month:"short",year:"2-digit"});
             return (
               <div key={m.id} onClick={()=>onOpen(m.id)}
-                style={{display:"grid",gridTemplateColumns:"140px 1fr 110px 100px 120px 90px",padding:"9px 14px",borderBottom:"1px solid #F9FAFB",cursor:"pointer",transition:"background .1s",alignItems:"center"}}
+                style={{display:"grid",gridTemplateColumns:trashMode?"140px 1fr 110px 100px 120px 110px 90px":"140px 1fr 110px 100px 120px 90px",padding:"9px 14px",borderBottom:"1px solid #F9FAFB",cursor:"pointer",transition:"background .1s",alignItems:"center"}}
                 onMouseEnter={e=>e.currentTarget.style.background="#F9FAFB"}
                 onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                 <div style={{fontSize:11,fontFamily:"monospace",color:"#2563EB",fontWeight:500}}>
@@ -1750,12 +1754,16 @@ function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRec
                 </div>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:500,color:"#111",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:8}}>{m.title}</div>
-                  {m.attachments?.length>0&&<span style={{fontSize:10,color:"#9CA3AF"}}>📎 {m.attachments.length}</span>}
+                  {trashMode&&deleter.name&&<span style={{fontSize:10,color:"#9CA3AF"}}>ลบโดย {deleter.name}</span>}
+                  {!trashMode&&m.attachments?.length>0&&<span style={{fontSize:10,color:"#9CA3AF"}}>📎 {m.attachments.length}</span>}
                 </div>
                 <div style={{fontSize:11,color:"#6B7280"}}>{m.category}</div>
                 <div><span style={{background:sc.bg,color:sc.text,border:`1px solid ${sc.border}`,borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:500,whiteSpace:"nowrap"}}>{STATUS_LABEL[m.status]||m.status}</span></div>
                 <div style={{fontSize:12,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{creator.name||"-"}</div>
-                <div style={{fontSize:11,color:"#9CA3AF",whiteSpace:"nowrap"}}>{fmtS(m.createdAt)}</div>
+                <div style={{fontSize:11,color:"#9CA3AF",whiteSpace:"nowrap"}}>{fmtS(trashMode?m.deletedAt:m.createdAt)}</div>
+                {trashMode&&(
+                  <button onClick={e=>{e.stopPropagation();onRestore?.(m);}} style={{...BTN_GRAY,padding:"4px 8px",fontSize:11,background:"#ECFDF5",color:"#065F46",border:"1px solid #A7F3D0"}}>↩ กู้คืน</button>
+                )}
               </div>
             );
           })}
@@ -2514,7 +2522,7 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, route
   );
 }
 
-function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, onRecall, onEdit, onAddFile, onRemoveFile, setModal, onCloneMemo, onApproverAddLevel, onAcknowledge }) {
+function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, onRecall, onEdit, onAddFile, onRemoveFile, setModal, onCloneMemo, onApproverAddLevel, onAcknowledge, onDelete, onRestore }) {
   const fileRef   = useRef();
   const [showPicker,   setShowPicker]   = useState(false);
   const [showAddLevel, setShowAddLevel] = useState(false);
@@ -2543,15 +2551,17 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
   const activeLevel    = getActiveLevel(memo);
   const myStep         = activeLevel?.approvers?.find(ap=>(ap.userId&&ap.userId===curUser.id)||(ap.email&&ap.email===curUser.email));
   const isSuperAdmin   = curUser.role === "superadmin";
+  const isDeleted      = isMemoDeleted(memo);
+  const deleter        = users.find(u => u.id === memo.deletedBy) || {};
   // Superadmin can approve on behalf of any pending approver in the active level
-  const canApproveOwn  = memo.status==="pending" && !!myStep && myStep.status==="pending" && can(curUser.role,"approve");
-  const canApproveProxy= memo.status==="pending" && isSuperAdmin &&
+  const canApproveOwn  = !isDeleted && memo.status==="pending" && !!myStep && myStep.status==="pending" && can(curUser.role,"approve");
+  const canApproveProxy= !isDeleted && memo.status==="pending" && isSuperAdmin &&
     (activeLevel?.approvers||[]).some(ap=>ap.status==="pending") && !canApproveOwn;
   const canApprove     = canApproveOwn || canApproveProxy;
 
-  const ALABEL={created:"สร้าง",submitted:"ส่งอนุมัติ",approved:"อนุมัติ",rejected:"ปฏิเสธ",recalled:"เรียกคืน",edited:"แก้ไข",resubmitted:"ส่งกลับ",addedLevel:"เพิ่มลำดับ"};
+  const ALABEL={created:"สร้าง",submitted:"ส่งอนุมัติ",approved:"อนุมัติ",rejected:"ปฏิเสธ",recalled:"เรียกคืน",edited:"แก้ไข",resubmitted:"ส่งกลับ",addedLevel:"เพิ่มลำดับ",deleted:"ลบ",restored:"กู้คืน",acknowledged:"รับทราบ"};
   const fmtHistAction = (h) => h.proxyFor ? `อนุมัติแทน ${h.proxyFor}` : (ALABEL[h.action]||h.action);
-  const ACOLOR={approved:"#065F46",rejected:"#991B1B",recalled:"#1E40AF",submitted:"#B45309",addedLevel:"#7C3AED"};
+  const ACOLOR={approved:"#065F46",rejected:"#991B1B",recalled:"#1E40AF",submitted:"#B45309",addedLevel:"#7C3AED",deleted:"#991B1B",restored:"#065F46",acknowledged:"#065F46"};
   const handleFile=e=>{const f=e.target.files[0];if(f)onAddFile(f);e.target.value="";};
   const notify=memo.notify||{};
   const notifySummary=[
@@ -2584,6 +2594,11 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
   return (
     <div style={{padding:24}}>
       {showPicker&&<TemplatePicker templates={tplList} memo={memo} users={users} onClose={()=>setShowPicker(false)}/>}
+      {isDeleted&&(
+        <div style={{background:"#FFF1F1",border:"1px solid #FECACA",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#991B1B"}}>
+          🗑 Memo นี้อยู่ในถังขยะ — ลบเมื่อ {fmtDate(memo.deletedAt)}{deleter.name ? ` โดย ${deleter.name}` : ""}
+        </div>
+      )}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
         <button onClick={onBack} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,color:"#9CA3AF",padding:0,lineHeight:1}}>←</button>
         <div style={{flex:1,minWidth:0}}>
@@ -2836,8 +2851,18 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
                 })}
               </div>
             )}
-            {isCreator&&memo.status==="pending"&&can(curUser.role,"recall")&&<button onClick={onRecall} style={{padding:11,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:13,cursor:"pointer"}}>↩ เรียกคืน Memo</button>}
-            {isCreator&&(memo.status==="draft"||memo.status==="recalled")&&<button onClick={onEdit} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✎ แก้ไข Memo</button>}
+            {isCreator&&memo.status==="pending"&&!isDeleted&&can(curUser.role,"recall")&&<button onClick={onRecall} style={{padding:11,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",borderRadius:6,fontSize:13,cursor:"pointer"}}>↩ เรียกคืน Memo</button>}
+            {isCreator&&!isDeleted&&(memo.status==="draft"||memo.status==="recalled")&&<button onClick={onEdit} style={{padding:11,background:GOLD,color:BLACK,border:"none",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer"}}>✎ แก้ไข Memo</button>}
+            {can(curUser.role,"deleteMemo")&&!isDeleted&&onDelete&&(
+              <button onClick={()=>onDelete(memo)} style={{padding:11,background:"#FFF1F1",color:"#991B1B",border:"1px solid #FECACA",borderRadius:6,fontSize:13,cursor:"pointer",fontWeight:500}}>
+                🗑 ลบ (ย้ายไปถังขยะ)
+              </button>
+            )}
+            {can(curUser.role,"deleteMemo")&&isDeleted&&onRestore&&(
+              <button onClick={()=>onRestore(memo)} style={{padding:11,background:"#ECFDF5",color:"#065F46",border:"1px solid #A7F3D0",borderRadius:6,fontSize:13,cursor:"pointer",fontWeight:600}}>
+                ↩ กู้คืนจากถังขยะ
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -3782,6 +3807,34 @@ function RecallSmartModal({ memo, onRecallAndEdit, onRecallOnly, onCancel }) {
   );
 }
 
+function DeleteConfirmModal({ memo, onConfirm, onCancel }) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999,padding:16}}>
+      <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:14,padding:24,width:400,maxWidth:"100%",boxShadow:"0 20px 60px rgba(0,0,0,.25)",fontFamily:"'Noto Sans Thai','Sarabun',sans-serif"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <span style={{fontSize:26,lineHeight:1}}>🗑</span>
+          <div>
+            <div style={{fontSize:15,fontWeight:700,color:"#111"}}>ย้าย Memo ไปถังขยะ?</div>
+            <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>Super Admin เท่านั้นที่กู้คืนได้ภายหลัง</div>
+          </div>
+        </div>
+        <div style={{background:"#FFF1F1",border:"1px solid #FECACA",borderRadius:8,padding:"10px 12px",marginBottom:16,fontSize:12,color:"#991B1B"}}>
+          <strong style={{display:"block",marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{memo.title}</strong>
+          Memo จะหายจากรายการทั้งหมด แต่ยังเก็บไว้ในเมนู "ถังขยะ"
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <button onClick={onConfirm} style={{padding:11,background:"#DC2626",color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+            🗑 ยืนยันลบ (ย้ายไปถังขยะ)
+          </button>
+          <button onClick={onCancel} style={{padding:10,background:"#F9FAFB",color:"#6B7280",border:"1px solid #E5E7EB",borderRadius:8,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+            ยกเลิก
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function EMemo() {
   const resetLinkActive = isResetPasswordLink();
   const [authUser,      setAuthUser]      = useState(undefined);
@@ -3791,6 +3844,7 @@ export default function EMemo() {
   const [editMemo,      setEditMemo]      = useState(null);
   const [modal,         setModal]         = useState(null);
   const [recallConfirm, setRecallConfirm] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [toast,         setToast]         = useState(null);
   const [syncing,       setSyncing]       = useState(false);
   const [showTplManager,  setShowTplManager]  = useState(false);
@@ -3872,7 +3926,8 @@ export default function EMemo() {
   const pushHistory = (v, extra={}) => window.history.pushState({ view:v, ...extra }, "", window.location.pathname);
 
   const users         = Object.values(data.users    ||{});
-  const memoList      = Object.values(data.memos    ||{});
+  const memoList      = Object.values(data.memos    ||{}).filter(m => !isMemoDeleted(m));
+  const trashMemos    = Object.values(data.memos    ||{}).filter(m => isMemoDeleted(m));
   const notifyConfig  = data.notifyConfig||{email:{},teams:{},powerauto:{},line:{}};
   const emailTemplates = mergeEmailTemplates(data.emailTemplates);
   const pdfTemplates  = data.pdfTemplates ||{};
@@ -3920,7 +3975,7 @@ export default function EMemo() {
     });
   })();
 
-  const selMemo = visibleMemos.find(m=>m.id===selId);
+  const selMemo = [...visibleMemos, ...(curUser.role === "superadmin" ? trashMemos : [])].find(m => m.id === selId);
 
   const openMemo    = id   => { setSelId(id); setView("detail"); pushHistory("detail", { selId:id }); };
   const startCreate = ()   => { setEditMemo({title:"",content:"",category:"ทั่วไป",workflowLevels:[],notify:{emailList:[],postToTeams:false,postToPowerAuto:false,postToLine:false},attachments:[]}); setView("create"); pushHistory("create"); };
@@ -4146,6 +4201,33 @@ export default function EMemo() {
     showToast("บันทึกการรับทราบแล้ว");
   };
 
+  const deleteMemo = async (memo) => {
+    const now = new Date().toISOString();
+    await patchMemo(memo.id, {
+      deletedAt: now,
+      deletedBy: curUser.id,
+      history: [...(memo.history || []), { action: "deleted", by: curUser.id, at: now, comment: "ย้ายไปถังขยะ" }],
+    });
+    setDeleteConfirm(null);
+    setSelId(null);
+    setView("trash");
+    pushHistory("trash");
+    showToast("ย้าย Memo ไปถังขยะแล้ว");
+  };
+
+  const restoreMemo = async (memo) => {
+    const now = new Date().toISOString();
+    await patchMemo(memo.id, {
+      deletedAt: null,
+      deletedBy: null,
+      history: [...(memo.history || []), { action: "restored", by: curUser.id, at: now, comment: "กู้คืนจากถังขยะ" }],
+    });
+    setSelId(null);
+    setView("all");
+    pushHistory("all");
+    showToast("กู้คืน Memo แล้ว");
+  };
+
   const NAV=[
     {k:"dashboard",l:"ภาพรวม",       i:"⊞",roles:["superadmin","admin","user"]},
     {k:"inbox",    l:"กล่องขาเข้า",  i:"↓",badge:inbox.length||null,roles:["superadmin","admin","user"]},
@@ -4157,6 +4239,7 @@ export default function EMemo() {
     {k:"routes",   l:"Route อนุมัติ",i:"🔀",roles:["superadmin","admin","user"]},
     {k:"users",    l:"จัดการ User",  i:"◎",roles:["superadmin"]},
     {k:"settings", l:"ตั้งค่าระบบ", i:"⚙",roles:["superadmin"]},
+    {k:"trash",    l:"ถังขยะ",      i:"🗑",badge:trashMemos.length||null,roles:["superadmin"]},
   ];
   const MOBILE_NAV=[
     {k:"dashboard",l:"ภาพรวม", i:"⊞",roles:["superadmin","admin","user"]},
@@ -4207,6 +4290,7 @@ export default function EMemo() {
         proxyFor={modal.proxyFor?.name||modal.proxyFor?.email||null}
       />}
       {recallConfirm&&<RecallSmartModal memo={recallConfirm.memo} onRecallAndEdit={()=>doRecall(recallConfirm.memo,true)} onRecallOnly={()=>doRecall(recallConfirm.memo,false)} onCancel={()=>setRecallConfirm(null)}/>}
+      {deleteConfirm&&<DeleteConfirmModal memo={deleteConfirm.memo} onConfirm={()=>deleteMemo(deleteConfirm.memo)} onCancel={()=>setDeleteConfirm(null)}/>}
       {curUser.onboardingPending && (
         <OnboardingTour
           steps={getOnboardingSteps(curUser.role)}
@@ -4287,8 +4371,11 @@ export default function EMemo() {
             ? <ErrorBoundary><SettingsView notifyConfig={notifyConfig} emailTemplatesStored={data.emailTemplates} showToast={showToast} onOpenPdfTemplate={()=>setShowTplManager(true)} onBackfillShareTokens={handleBackfillShareTokens} backfillPendingCount={countMemosNeedingShareToken(data.memos)}/></ErrorBoundary>
             : <div style={{padding:32,textAlign:"center",color:"#9CA3AF",fontSize:13}}><div style={{fontSize:24,marginBottom:8}}>🔒</div><div>สิทธิ์ไม่เพียงพอ</div></div>
         )}
+        {view==="trash"&&can(curUser.role,"deleteMemo")&&(
+          <MemoListView key="trash" memoList={trashMemos} users={users} title="ถังขยะ" subtitle={`${trashMemos.length} Memo ที่ถูกลบ — กู้คืนได้`} curUser={curUser} onOpen={openMemo} trashMode onRestore={restoreMemo}/>
+        )}
         {view==="create"&&editMemo&&<CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} routeTemplates={routeTemplates} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"} onOpenSigZones={()=>setShowSigZones(true)} syncing={syncing}/>}
-        {view==="detail"&&selMemo&&<DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplates={pdfTemplates} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal} onCloneMemo={cloneMemo} onApproverAddLevel={approverAddLevel} onAcknowledge={payload=>acknowledgeMemo(selMemo,payload)}/>}
+        {view==="detail"&&selMemo&&<DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplates={pdfTemplates} onBack={()=>{setView(isMemoDeleted(selMemo)?"trash":"myMemos");pushHistory(isMemoDeleted(selMemo)?"trash":"myMemos");}} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal} onCloneMemo={cloneMemo} onApproverAddLevel={approverAddLevel} onAcknowledge={payload=>acknowledgeMemo(selMemo,payload)} onDelete={m=>setDeleteConfirm({memo:m})} onRestore={restoreMemo}/>}
       </div>
 
       {/* Mobile Bottom Navigation */}

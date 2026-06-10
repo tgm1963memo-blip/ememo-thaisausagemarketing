@@ -21,6 +21,7 @@ export default async function handler(req, res) {
     const memo = memoSnap.val();
 
     if (!memo) return res.status(404).json({ error: "NOT_FOUND" });
+    if (memo.deletedAt) return res.status(403).json({ error: "DELETED" });
     if (memo.status !== "approved") return res.status(403).json({ error: "NOT_APPROVED" });
     if (!memo.shareToken || memo.shareToken !== token) return res.status(403).json({ error: "INVALID_TOKEN" });
 

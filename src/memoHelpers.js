@@ -136,3 +136,15 @@ export function collectUniqueApprovers(memoList, users) {
   }
   return [...map.values()].sort((a, b) => (a.name || "").localeCompare(b.name || "", "th"));
 }
+
+export function isMemoDeleted(memo) {
+  return !!memo?.deletedAt;
+}
+
+export function filterActiveMemos(memoList) {
+  return (memoList || []).filter(m => !isMemoDeleted(m));
+}
+
+export function filterTrashMemos(memoList) {
+  return (memoList || []).filter(m => isMemoDeleted(m));
+}

@@ -12,6 +12,9 @@ import {
   getMemoCreatorSearchText,
   collectUniqueApprovers,
   collectUniqueCreators,
+  isMemoDeleted,
+  filterActiveMemos,
+  filterTrashMemos,
 } from "../src/memoHelpers.js";
 
 const users = [
@@ -92,5 +95,11 @@ assert.ok(creatorText.includes("somchai@tgm.co.th"));
 const creators = collectUniqueCreators([memo], users);
 assert.equal(creators.length, 1);
 assert.equal(creators[0].name, "สมชาย");
+
+// trash helpers
+assert.equal(isMemoDeleted({ deletedAt: "2026-01-01" }), true);
+assert.equal(isMemoDeleted({}), false);
+assert.equal(filterActiveMemos([memo, { id: "x", deletedAt: "2026-01-01" }]).length, 1);
+assert.equal(filterTrashMemos([memo, { id: "x", deletedAt: "2026-01-01" }]).length, 1);
 
 console.log("✓ memoHelpers tests passed");
