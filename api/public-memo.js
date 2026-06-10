@@ -55,6 +55,8 @@ export default async function handler(req, res) {
           type: a.type,
           data: a.data,
         })),
+        acknowledgements: memo.acknowledgements || {},
+        notify: { emailList: memo.notify?.emailList || [] },
       },
     });
   } catch (err) {

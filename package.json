@@ -10,6 +10,8 @@
     "dev:api": "vercel dev",
     "build": "vite build",
     "test:email": "node scripts/test-email-templates.mjs",
+    "test:memo": "node scripts/test-memo-features.mjs",
+    "test": "npm run test:email && npm run test:memo",
     "preview": "vite preview"
   },
   "dependencies": {

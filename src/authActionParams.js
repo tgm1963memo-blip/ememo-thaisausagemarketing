@@ -19,6 +19,7 @@ export function getPublicMemoParams() {
   return {
     memoId: params.get("viewMemo") || params.get("memoId") || "",
     token: params.get("token") || "",
+    recipient: params.get("recipient") || "",
   };
 }
 

@@ -9,6 +9,19 @@ import PublicMemoView from "./PublicMemoView";
 import ChangePasswordModal from "./ChangePasswordModal";
 import OnboardingTour from "./OnboardingTour";
 import { getOnboardingSteps } from "./onboardingSteps";
+import AcknowledgementPanel from "./AcknowledgementPanel";
+import UserGuideView from "./UserGuideView";
+import {
+  buildApprovedEmailRecipients,
+  buildMemoShareLink,
+  getAckSummary,
+  getMemoApproverSearchText,
+  collectUniqueApprovers,
+  isValidAckRecipient,
+  isRecipientAcknowledged,
+  emailToKey,
+  normalizeEmail as normalizeMemoEmail,
+} from "./memoHelpers";
 import {
   DEFAULT_EMAIL_TEMPLATES,
   EMAIL_PLACEHOLDERS,
@@ -298,12 +311,8 @@ function generateShareToken() {
   return Array.from(arr, b => b.toString(16).padStart(2, "0")).join("");
 }
 
-function buildMemoShareLink(memo, appUrl = window.location.origin) {
-  if (!memo?.id || !memo?.shareToken) return appUrl;
-  const url = new URL(appUrl);
-  url.searchParams.set("viewMemo", memo.id);
-  url.searchParams.set("token", memo.shareToken);
-  return url.toString();
+function buildMemoShareLinkLocal(memo, appUrl = window.location.origin, recipientEmail = "") {
+  return buildMemoShareLink(memo, appUrl, recipientEmail);
 }
 
 function isMemoCcRecipient(memo, userEmail) {
@@ -340,33 +349,6 @@ function displayUserName(u) {
   if (!u) return "-";
   const { name, nickname } = parseNameAndNickname(String(u.name || "").replace(/^undefined/i, ""), u.nickname);
   return nickname ? `${name} (${nickname})` : (name || "-");
-}
-
-function buildApprovedEmailRecipients(memo, users) {
-  const recipients = new Map();
-  const addRecipient = ({ email, name, userId, source }) => {
-    const normalized = normalizeEmail(email);
-    if (!normalized) return;
-    const existing = recipients.get(normalized);
-    if (existing) {
-      recipients.set(normalized, {
-        ...existing,
-        source: existing.source === "creator" || source === "creator" ? "creator" : existing.source,
-      });
-      return;
-    }
-    recipients.set(normalized, { email: String(email).trim(), name: name || "", userId: userId || null, source });
-  };
-
-  const creator = users.find(u => u.id === memo.createdBy) || {};
-  addRecipient({ email: creator.email, name: creator.name, userId: creator.id, source: "creator" });
-
-  for (const email of memo.notify?.emailList || []) {
-    const u = users.find(user => normalizeEmail(user.email) === normalizeEmail(email)) || {};
-    addRecipient({ email, name: u.name || email, userId: u.id, source: "notifyList" });
-  }
-
-  return [...recipients.values()];
 }
 
 async function sendApproverEmail(cfg, memo, level, users) {
@@ -470,7 +452,10 @@ async function sendApprovedNotifications(cfg, memo, users) {
       emailReceipts.push({ ...recipient, status: "skipped", sentAt: skippedAt, error: "Email notification is disabled" });
     }
   } else if (approvedEmailRecipients.length) {
-    const html = `
+    for (const recipient of approvedEmailRecipients) {
+      const sentAt = new Date().toISOString();
+      const viewLink = buildMemoShareLinkLocal(memo, appUrl, recipient.email);
+      const html = `
       <div style="font-family:'Noto Sans Thai',Sarabun,sans-serif;max-width:560px;margin:0 auto;">
         <div style="background:#1E3A5F;padding:20px 28px;border-radius:8px 8px 0 0;">
           <div style="font-size:16px;font-weight:700;color:#fff;">${COMPANY}</div>
@@ -478,7 +463,7 @@ async function sendApprovedNotifications(cfg, memo, users) {
         </div>
         <div style="border:1px solid #E5E7EB;border-top:3px solid #22C55E;padding:28px;border-radius:0 0 8px 8px;background:#fff;">
           <p style="margin:0 0 4px;font-size:22px;">✅</p>
-          <p style="margin:0 0 12px;font-size:15px;font-weight:600;color:#111;">Memo ได้รับการอนุมัติครบแล้ว</p>
+          <p style="margin:0 0 12px;font-size:15px;font-weight:600;color:#111;">คุณ${recipient.name||""} — Memo ได้รับการอนุมัติครบแล้ว</p>
           <table style="width:100%;border-collapse:collapse;font-size:13px;margin:8px 0;">
             <tr><td style="color:#6B7280;padding:4px 0;width:100px;">ชื่อเรื่อง:</td><td style="font-weight:600;color:#111;">${memo.title}</td></tr>
             <tr><td style="color:#6B7280;padding:4px 0;">หมวดหมู่:</td><td>${memo.category||"-"}</td></tr>
@@ -487,21 +472,22 @@ async function sendApprovedNotifications(cfg, memo, users) {
             ${memo.docNo?`<tr><td style="color:#6B7280;padding:4px 0;">เลขที่เอกสาร:</td><td style="font-family:monospace;color:#1D4ED8;">${memo.docNo}</td></tr>`:""}
           </table>
           ${summary?`<div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:6px;padding:12px;margin:12px 0;font-size:12px;color:#374151;">${summary}${summary.length>=200?"...":""}</div>`:""}
-          <div style="text-align:center;margin:20px 0;">
-            <a href="${buildMemoShareLink(memo, appUrl)}" style="background:#D4AF37;color:#111;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">
+          <div style="text-align:center;margin:20px 0;display:flex;flex-direction:column;gap:10px;align-items:center;">
+            <a href="${viewLink}" style="background:#D4AF37;color:#111;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">
               ดูเอกสาร →
+            </a>
+            <a href="${viewLink}" style="background:#22C55E;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">
+              ✓ รับทราบเอกสาร
             </a>
           </div>
           <p style="margin:0;font-size:11px;color:#9CA3AF;text-align:center;line-height:1.6;">
-            เปิดลิงก์นี้ได้โดยไม่ต้องมีบัญชีในระบบ — หากมีบัญชีแล้วสามารถดูได้ที่เมนู "CC ถึงฉัน"
+            เปิดลิงก์นี้ได้โดยไม่ต้องมีบัญชีในระบบ — กดปุ่ม "รับทราบ" เพื่อให้ผู้สร้างทราบว่าคุณได้รับทราบแล้ว
           </p>
           <div style="border-top:1px solid #F3F4F6;margin-top:20px;padding-top:12px;font-size:10px;color:#D1D5DB;text-align:center;">
             ${COMPANY} — E-Memo System
           </div>
         </div>
       </div>`;
-    for (const recipient of approvedEmailRecipients) {
-      const sentAt = new Date().toISOString();
       try {
         const result = await sendMemoEmail({
           to: recipient.email,
@@ -1091,6 +1077,7 @@ function SignatureZonesModal({ memo, users, curUser, onSave, onClose }) {
 
 function MemoRow({ memo, users, onClick, highlight, curUser, onRecall, onEdit }) {
   const creator=users.find(u=>u.id===memo.createdBy)||{}; const isOwn=memo.createdBy===curUser?.id;
+  const ackSummary = memo.status === "approved" ? getAckSummary(memo, users) : null;
   return (
     <div onClick={onClick} style={{background:"#fff",border:`1px solid ${highlight?"#FCD34D":"#F3F4F6"}`,borderRadius:8,padding:"10px 14px",marginBottom:6,cursor:"pointer"}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
@@ -1105,6 +1092,11 @@ function MemoRow({ memo, users, onClick, highlight, curUser, onRecall, onEdit })
             <span style={{fontSize:11,color:"#9CA3AF"}}>{creator.name} · {fmtShort(memo.createdAt)}</span>
             {memo.attachments?.length>0&&<span style={{fontSize:11,color:"#9CA3AF"}}>📎 {memo.attachments.length}</span>}
             {memo.signatureZones?.length>0&&<span style={{fontSize:11,color:"#9CA3AF"}}>✍ {memo.signatureZones.length}</span>}
+            {isOwn && ackSummary?.total > 0 && (
+              <span style={{ fontSize: 11, color: ackSummary.allAcked ? "#065F46" : "#92400E", background: ackSummary.allAcked ? "#ECFDF5" : "#FFFBEB", padding: "1px 6px", borderRadius: 4, border: `1px solid ${ackSummary.allAcked ? "#A7F3D0" : "#FDE68A"}` }}>
+                {ackSummary.ackCount}/{ackSummary.total} รับทราบ
+              </span>
+            )}
             <WorkflowChain memo={memo} users={users}/>
           </div>
         </div>
@@ -1772,21 +1764,30 @@ function MemoListView({ memoList, users, title, subtitle, curUser, onOpen, onRec
 }
 
 function SearchView({ memoList, users, curUser, onOpen }) {
-  const [q,setQ]=useState(""); const [fS,setFS]=useState(""); const [fC,setFC]=useState(""); const [fF,setFF]=useState(""); const [fT,setFT]=useState("");
+  const [q,setQ]=useState(""); const [fS,setFS]=useState(""); const [fC,setFC]=useState(""); const [fF,setFF]=useState(""); const [fT,setFT]=useState(""); const [fA,setFA]=useState("");
+  const approvers = collectUniqueApprovers(memoList, users);
   const res=memoList.filter(m=>{
-    if(q.trim()&&!m.title?.toLowerCase().includes(q.toLowerCase())&&!m.content?.toLowerCase().includes(q.toLowerCase()))return false;
+    if(q.trim()){
+      const ql=q.toLowerCase();
+      if(!m.title?.toLowerCase().includes(ql)&&!m.content?.toLowerCase().includes(ql)&&!getMemoApproverSearchText(m,users).includes(ql))return false;
+    }
     if(fS&&m.status!==fS)return false; if(fC&&m.category!==fC)return false;
     if(fF&&m.createdAt<fF)return false; if(fT&&m.createdAt>fT+"T23:59:59")return false;
+    if(fA){
+      const hit=(m.workflowLevels||[]).some(lv=>(lv.approvers||[]).some(ap=>ap.userId===fA||normalizeEmail(ap.email)===normalizeEmail(approvers.find(a=>a.id===fA)?.email)));
+      if(!hit)return false;
+    }
     return true;
   }).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
-  const has=q||fS||fC||fF||fT;
+  const has=q||fS||fC||fF||fT||fA;
   return (
     <div style={{padding:24}}>
       <div style={{fontSize:18,fontWeight:600,color:"#111",marginBottom:14}}>ค้นหา Memo</div>
-      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="ค้นหาชื่อเรื่อง, เนื้อหา..." style={{...IS,marginBottom:10}}/>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:14}}>
+      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="ค้นหาชื่อเรื่อง, เนื้อหา, ผู้อนุมัติ..." style={{...IS,marginBottom:10}}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:8,marginBottom:14}}>
         <select value={fS} onChange={e=>setFS(e.target.value)} style={{...IS,width:"auto"}}><option value="">สถานะทั้งหมด</option>{Object.entries(STATUS_LABEL).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select>
         <select value={fC} onChange={e=>setFC(e.target.value)} style={{...IS,width:"auto"}}><option value="">หมวดหมู่ทั้งหมด</option>{BASE_CATEGORIES.map(c=><option key={c}>{c}</option>)}</select>
+        <select value={fA} onChange={e=>setFA(e.target.value)} style={{...IS,width:"auto"}}><option value="">ผู้อนุมัติทั้งหมด</option>{approvers.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select>
         <input type="date" value={fF} onChange={e=>setFF(e.target.value)} style={{...IS,width:"auto"}}/>
         <input type="date" value={fT} onChange={e=>setFT(e.target.value)} style={{...IS,width:"auto"}}/>
       </div>
@@ -2508,7 +2509,7 @@ function CreateView({ editMemo, setEditMemo, users, curUser, notifyConfig, route
   );
 }
 
-function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, onRecall, onEdit, onAddFile, onRemoveFile, setModal, onCloneMemo, onApproverAddLevel }) {
+function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, onRecall, onEdit, onAddFile, onRemoveFile, setModal, onCloneMemo, onApproverAddLevel, onAcknowledge }) {
   const fileRef   = useRef();
   const [showPicker,   setShowPicker]   = useState(false);
   const [showAddLevel, setShowAddLevel] = useState(false);
@@ -2555,6 +2556,7 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
     ...(notifyConfig.line?.enabled&&notify.postToLine?["🟢 LINE Group"]:[]),
   ];
   const canViewEmailNotifications = isCreator || ["admin","superadmin"].includes(curUser.role);
+  const canViewAcknowledgements = memo.status === "approved" && (canViewEmailNotifications || isValidAckRecipient(memo, users, curUser.email) || isMemoCcRecipient(memo, curUser.email));
   const approvedEmailNotifications = memo.approvedEmailNotifications || null;
   const emailStatusMeta = {
     sent: { label:"ส่งสำเร็จ", color:"#065F46", bg:"#ECFDF5", border:"#A7F3D0" },
@@ -2709,8 +2711,13 @@ function DetailView({ memo, users, curUser, notifyConfig, pdfTemplates, onBack, 
           {memo.status==="approved"&&memo.shareToken&&(
             <Section title="ลิงก์ดูเอกสาร (CC)">
               <div style={{fontSize:11,color:"#6B7280",lineHeight:1.6,marginBottom:8}}>ผู้รับ CC เปิดลิงก์นี้ได้โดยไม่ต้องมีบัญชีในระบบ</div>
-              <div style={{fontSize:11,color:"#1E40AF",wordBreak:"break-all",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:6,padding:"8px 10px",marginBottom:8}}>{buildMemoShareLink(memo)}</div>
-              <button onClick={()=>{const link=buildMemoShareLink(memo);navigator.clipboard?.writeText(link).then(()=>alert("คัดลอกลิงก์แล้ว")).catch(()=>prompt("คัดลอกลิงก์:",link));}} style={{...BTN_GRAY,padding:"6px 12px",fontSize:12}}>📋 คัดลอกลิงก์</button>
+              <div style={{fontSize:11,color:"#1E40AF",wordBreak:"break-all",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:6,padding:"8px 10px",marginBottom:8}}>{buildMemoShareLinkLocal(memo)}</div>
+              <button onClick={()=>{const link=buildMemoShareLinkLocal(memo);navigator.clipboard?.writeText(link).then(()=>alert("คัดลอกลิงก์แล้ว")).catch(()=>prompt("คัดลอกลิงก์:",link));}} style={{...BTN_GRAY,padding:"6px 12px",fontSize:12}}>📋 คัดลอกลิงก์</button>
+            </Section>
+          )}
+          {canViewAcknowledgements && (
+            <Section title="สถานะการรับทราบ">
+              <AcknowledgementPanel memo={memo} users={users} curUser={curUser} onAcknowledge={onAcknowledge} />
             </Section>
           )}
           {canViewEmailNotifications && approvedEmailNotifications && (
@@ -4111,6 +4118,29 @@ export default function EMemo() {
     setShowSigZones(false);
   };
 
+  const acknowledgeMemo = async (memo, { email, name, via = "system" }) => {
+    const key = normalizeMemoEmail(email);
+    if (!isValidAckRecipient(memo, users, key)) {
+      showToast("ไม่สามารถรับทราบได้ — อีเมลไม่อยู่ในรายชื่อผู้รับแจ้งเตือน", "error");
+      return;
+    }
+    if (isRecipientAcknowledged(memo, key)) {
+      showToast("คุณรับทราบเอกสารนี้แล้ว");
+      return;
+    }
+    const acknowledgement = {
+      email: key,
+      name: name || curUser.name || key,
+      at: new Date().toISOString(),
+      via,
+    };
+    await patchMemo(memo.id, {
+      [`acknowledgements/${emailToKey(key)}`]: acknowledgement,
+      history: [...(memo.history || []), { action: "acknowledged", by: curUser.id, at: acknowledgement.at, comment: `${acknowledgement.name} รับทราบ` }],
+    });
+    showToast("บันทึกการรับทราบแล้ว");
+  };
+
   const NAV=[
     {k:"dashboard",l:"ภาพรวม",       i:"⊞",roles:["superadmin","admin","user"]},
     {k:"inbox",    l:"กล่องขาเข้า",  i:"↓",badge:inbox.length||null,roles:["superadmin","admin","user"]},
@@ -4118,6 +4148,7 @@ export default function EMemo() {
     {k:"ccMemos",  l:"CC ถึงฉัน",    i:"✉",badge:ccMemos.length||null,roles:["superadmin","admin","user"]},
     {k:"all",      l:"ทั้งหมด",      i:"≡",roles:["superadmin","admin"]},
     {k:"search",   l:"ค้นหา",        i:"⌕",roles:["superadmin","admin","user"]},
+    {k:"guide",    l:"คู่มือ",       i:"📖",roles:["superadmin","admin","user"]},
     {k:"routes",   l:"Route อนุมัติ",i:"🔀",roles:["superadmin","admin","user"]},
     {k:"users",    l:"จัดการ User",  i:"◎",roles:["superadmin"]},
     {k:"settings", l:"ตั้งค่าระบบ", i:"⚙",roles:["superadmin"]},
@@ -4128,6 +4159,7 @@ export default function EMemo() {
     {k:"myMemos",  l:"ของฉัน", i:"◉",roles:["superadmin","admin","user"]},
     {k:"ccMemos",  l:"CC",     i:"✉",badge:ccMemos.length||null,roles:["superadmin","admin","user"]},
     {k:"search",   l:"ค้นหา",  i:"⌕",roles:["superadmin","admin","user"]},
+    {k:"guide",    l:"คู่มือ", i:"📖",roles:["superadmin","admin","user"]},
     {k:"settings", l:"ตั้งค่า",i:"⚙",roles:["superadmin"]},
   ];
 
@@ -4242,6 +4274,7 @@ export default function EMemo() {
         {view==="ccMemos"  &&<MemoListView memoList={ccMemos} users={users} title="CC ถึงฉัน" subtitle={`${ccMemos.length} เอกสารที่คุณได้รับ CC หลังอนุมัติครบ`} curUser={curUser} onOpen={openMemo}/>}
         {view==="all"      &&can(curUser.role,"viewAll")&&<MemoListView memoList={visibleMemos} users={users} title="Memo ทั้งหมด" curUser={curUser} onOpen={openMemo}/>}
         {view==="search"   &&<SearchView memoList={visibleMemos} users={users} curUser={curUser} onOpen={openMemo}/>}
+        {view==="guide"    &&<UserGuideView/>}
         {view==="routes"   &&<RouteListView routeTemplates={routeTemplates} curUser={curUser} onManage={()=>setShowRouteManager(true)}/>}
         {view==="users"    &&can(curUser.role,"manageUsers")&&<UsersMgmt users={users} curUser={curUser} showToast={showToast} emailTemplates={emailTemplates}/>}
         {view==="settings" &&(
@@ -4250,7 +4283,7 @@ export default function EMemo() {
             : <div style={{padding:32,textAlign:"center",color:"#9CA3AF",fontSize:13}}><div style={{fontSize:24,marginBottom:8}}>🔒</div><div>สิทธิ์ไม่เพียงพอ</div></div>
         )}
         {view==="create"&&editMemo&&<CreateView editMemo={editMemo} setEditMemo={setEditMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} routeTemplates={routeTemplates} onSubmit={submitMemo} onCancel={()=>{setEditMemo(null);setView("myMemos");}} isRecall={!!editMemo.id&&editMemo.status==="recalled"} onOpenSigZones={()=>setShowSigZones(true)} syncing={syncing}/>}
-        {view==="detail"&&selMemo&&<DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplates={pdfTemplates} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal} onCloneMemo={cloneMemo} onApproverAddLevel={approverAddLevel}/>}
+        {view==="detail"&&selMemo&&<DetailView memo={selMemo} users={users} curUser={curUser} notifyConfig={notifyConfig} pdfTemplates={pdfTemplates} onBack={()=>setView("myMemos")} onRecall={()=>recallMemo(selMemo)} onEdit={()=>startEdit(selMemo)} onAddFile={f=>addAtt(selMemo,f)} onRemoveFile={id=>remAtt(selMemo,id)} setModal={setModal} onCloneMemo={cloneMemo} onApproverAddLevel={approverAddLevel} onAcknowledge={payload=>acknowledgeMemo(selMemo,payload)}/>}
       </div>
 
       {/* Mobile Bottom Navigation */}

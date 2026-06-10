@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import { getPublicMemoParams } from "./authActionParams";
+import {
+  buildApprovedEmailRecipients,
+  getMemoAcknowledgements,
+  isRecipientAcknowledged,
+  normalizeEmail,
+} from "./memoHelpers";
 
 const GOLD = "#D4AF37";
 const API_BASE = typeof window !== "undefined"
@@ -23,10 +29,13 @@ function displayName(u) {
 }
 
 export default function PublicMemoView() {
-  const { memoId, token } = getPublicMemoParams();
+  const { memoId, token, recipient: recipientParam } = getPublicMemoParams();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [data, setData] = useState(null);
+  const [acking, setAcking] = useState(false);
+  const [ackDone, setAckDone] = useState(false);
+  const [ackError, setAckError] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -58,6 +67,53 @@ export default function PublicMemoView() {
   const memo = data?.memo;
   const creator = data?.creator;
   const users = data?.users || [];
+  const recipientEmail = normalizeEmail(recipientParam);
+  const recipients = memo ? buildApprovedEmailRecipients(memo, users.length ? users : [{ id: memo.createdBy, email: creator?.email }]) : [];
+  const isValidRecipient = recipientEmail && recipients.some(r => normalizeEmail(r.email) === recipientEmail);
+  const alreadyAcked = memo && recipientEmail && isRecipientAcknowledged(memo, recipientEmail);
+
+  useEffect(() => {
+    if (alreadyAcked) setAckDone(true);
+  }, [alreadyAcked]);
+
+  const handleAck = async () => {
+    if (!isValidRecipient || ackDone || acking) return;
+    setAcking(true);
+    setAckError("");
+    try {
+      const r = recipients.find(x => normalizeEmail(x.email) === recipientEmail);
+      const res = await fetch(`${API_BASE}/api/acknowledge-memo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          memoId,
+          token,
+          email: recipientEmail,
+          name: r?.name || recipientEmail,
+          via: "link",
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = {
+          NOT_RECIPIENT: "อีเมลนี้ไม่อยู่ในรายชื่อผู้รับแจ้งเตือน",
+          NOT_APPROVED: "เอกสารยังไม่ได้รับการอนุมัติครบ",
+          INVALID_TOKEN: "ลิงก์ไม่ถูกต้อง",
+        }[json.error] || json.error || "บันทึกการรับทราบไม่สำเร็จ";
+        throw new Error(msg);
+      }
+      setAckDone(true);
+      if (memo) {
+        const acks = getMemoAcknowledgements(memo);
+        acks[recipientEmail] = json.acknowledgement || { email: recipientEmail, at: new Date().toISOString(), via: "link" };
+        setData(prev => ({ ...prev, memo: { ...prev.memo, acknowledgements: { ...(prev.memo?.acknowledgements || {}), [recipientEmail.replace(/\./g, ",")]: acks[recipientEmail] } } }));
+      }
+    } catch (err) {
+      setAckError(err.message || "เกิดข้อผิดพลาด");
+    } finally {
+      setAcking(false);
+    }
+  };
 
   return (
     <div style={S.page}>
@@ -79,6 +135,24 @@ export default function PublicMemoView() {
               <div><span style={S.metaLabel}>วันที่สร้าง</span><div>{fmtDate(memo.createdAt)}</div></div>
               <div><span style={S.metaLabel}>สถานะ</span><div style={{ color: "#065F46", fontWeight: 600 }}>✅ อนุมัติครบแล้ว</div></div>
             </div>
+
+            {isValidRecipient && (
+              <div style={S.ackBox}>
+                {ackDone || alreadyAcked ? (
+                  <div style={S.ackSuccess}>✓ คุณรับทราบเอกสารนี้แล้ว — ผู้สร้างจะเห็นสถานะในระบบ</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, color: "#374151", marginBottom: 10, lineHeight: 1.6 }}>
+                      กรุณากดปุ่มด้านล่างเพื่อยืนยันว่าคุณได้รับทราบเอกสารนี้แล้ว
+                    </div>
+                    <button style={S.ackBtn} onClick={handleAck} disabled={acking}>
+                      {acking ? "กำลังบันทึก..." : "✓ รับทราบเอกสารนี้"}
+                    </button>
+                    {ackError && <div style={{ ...S.error, marginTop: 10, marginBottom: 0 }}>{ackError}</div>}
+                  </>
+                )}
+              </div>
+            )}
 
             <div style={S.section}>
               <div style={S.sectionTitle}>เนื้อหา</div>
@@ -143,6 +217,9 @@ const S = {
   docNo: { fontSize: 12, color: "#1D4ED8", fontFamily: "monospace", marginBottom: 14 },
   metaGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 16, fontSize: 12, color: "#374151" },
   metaLabel: { display: "block", fontSize: 10, color: "#9CA3AF", fontWeight: 600, marginBottom: 2, textTransform: "uppercase" },
+  ackBox: { background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 10, padding: "14px 16px", marginBottom: 16 },
+  ackBtn: { width: "100%", padding: 12, borderRadius: 8, border: "none", background: "#22C55E", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit" },
+  ackSuccess: { fontSize: 13, color: "#065F46", fontWeight: 600, textAlign: "center", padding: "4px 0" },
   section: { borderTop: "1px solid #F3F4F6", paddingTop: 14, marginTop: 14 },
   sectionTitle: { fontSize: 11, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 },
   content: { fontSize: 13, color: "#374151", lineHeight: 1.7, wordBreak: "break-word" },
